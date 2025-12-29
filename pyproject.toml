@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.0"]
+build-backend = "maturin"
+
+[project]
+name = "koava"
+version = "0.1.0"
+description = "KoalaVault model converter tool for producers"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "KoalaVault Team", email = "koalavaultx@gmail.com"}
+]
+requires-python = ">=3.8"
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://www.koalavault.ai"
+Repository = "https://github.com/koalavault/koalavault.ai"
+
+[project.optional-dependencies]
+huggingface = ["huggingface_hub[cli]>=0.16.0"]
+
+[tool.maturin]
+manifest-path = "Cargo.toml"
+features = []
+
+[tool.maturin.sdist]
+include = [
+    "README.md",
+    "LICENSE",
+    "templates/KOALAVAULT_PROPRIETARY_LICENSE.txt",
+    "templates/README_ENCRYPTED_MODEL.md",
+]
+
