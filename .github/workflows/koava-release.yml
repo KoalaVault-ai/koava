@@ -1,0 +1,496 @@
+name: Build and Publish koava to PyPI
+
+on:
+  # Manual trigger - auto-calculates next RC version
+  workflow_dispatch:
+    inputs:
+      dryrun:
+        description: 'Dry run (build only, no publish)'
+        required: false
+        type: boolean
+        default: false
+      build_type:
+        description: 'Build type (release or debug)'
+        required: false
+        type: choice
+        options:
+          - release
+          - debug
+        default: release
+  
+  # Build and test on push (branches and tags) and pull requests
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
+  pull_request:
+    branches:
+      - '**' 
+
+env:
+  PACKAGE_NAME: koava
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.config.outputs.version }}
+      dryrun: ${{ steps.config.outputs.dryrun }}
+      testpypi: ${{ steps.config.outputs.testpypi }}
+      build_type: ${{ steps.config.outputs.build_type }}
+      is_release: ${{ steps.config.outputs.is_release }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history to ensure latest code
+    
+    - name: Determine version and mode
+      id: config
+      run: |
+        EVENT_NAME="${{ github.event_name }}"
+        REF_TYPE="${{ github.ref_type }}"
+        
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          # Manual trigger: auto-calculate next RC version (force TestPyPI)
+          DRYRUN="${{ github.event.inputs.dryrun }}"
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          IS_RELEASE="true"  # Manual trigger can publish
+          
+          # Get latest tag
+          git fetch --tags
+          LATEST_TAG=$(git tag -l 'v*' | sort -V | tail -1)
+          
+          if [ -z "$LATEST_TAG" ]; then
+            # No tags exist, start with v0.0.1-rc.1
+            BASE_VERSION="0.0.1"
+            RC_NUM=1
+          else
+            # Remove 'v' prefix
+            LATEST_VERSION="${LATEST_TAG#v}"
+            
+            if [[ "$LATEST_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+              # Latest is an RC version, increment RC number
+              BASE_VERSION="${BASH_REMATCH[1]}"
+              RC_NUM=$((${BASH_REMATCH[2]} + 1))
+            else
+              # Latest is a release version, increment patch and start rc.1
+              if [[ "$LATEST_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                MAJOR="${BASH_REMATCH[1]}"
+                MINOR="${BASH_REMATCH[2]}"
+                PATCH="${BASH_REMATCH[3]}"
+                BASE_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+                RC_NUM=1
+              else
+                echo "::error::Failed to parse version: $LATEST_VERSION"
+                exit 1
+              fi
+            fi
+          fi
+          
+          VERSION="${BASE_VERSION}-rc.${RC_NUM}"
+          TESTPYPI="true"  # Manual trigger always publishes to TestPyPI
+          
+          # Enforce: debug builds must be RC
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            if ! echo "$VERSION" | grep -q "-rc\."; then
+              echo "::error::Debug builds are only allowed for RC versions"
+              exit 1
+            fi
+          fi
+          
+          echo "Auto-calculated RC version: $VERSION"
+        elif [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+          # Tag push: extract version from tag name (for publishing)
+          TAG_NAME="${{ github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          DRYRUN="false"
+          BUILD_TYPE="release"
+          IS_RELEASE="true"
+          
+          # Determine publish target based on tag type
+          # RC tags (containing -rc.N) -> TestPyPI only
+          # Release tags (no -rc suffix) -> PyPI only
+          echo "Analyzing tag: $TAG_NAME"
+          echo "Extracted version: $VERSION"
+          
+          if echo "$VERSION" | grep -qE "-rc\.[0-9]+$"; then
+            TESTPYPI="true"
+            echo "✓ RC tag detected (contains -rc.N suffix)"
+            echo "✓ Publishing to TestPyPI only"
+          else
+            TESTPYPI="false"
+            echo "✓ Release tag detected (no -rc suffix)"
+            echo "✓ Publishing to PyPI only"
+          fi
+          
+          echo "Building from tag: $TAG_NAME"
+          echo "Version: $VERSION"
+        else
+          # Regular push or pull_request: build only, no publish
+          echo "Build and test mode (no publishing)"
+          DRYRUN="true"
+          BUILD_TYPE="release"
+          IS_RELEASE="false"
+          TESTPYPI="false"
+          
+          # Use a test version for build testing
+          git fetch --tags
+          LATEST_TAG=$(git tag -l 'v*' | sort -V | tail -1)
+          
+          if [ -z "$LATEST_TAG" ]; then
+            VERSION="0.0.1-dev"
+          else
+            LATEST_VERSION="${LATEST_TAG#v}"
+            if [[ "$LATEST_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-rc\.[0-9]+)?$ ]]; then
+              BASE_VERSION="${BASH_REMATCH[1]}"
+              VERSION="${BASE_VERSION}-dev"
+            else
+              VERSION="0.0.1-dev"
+            fi
+          fi
+          
+          echo "Test build version: $VERSION"
+        fi
+        
+        # Output to GITHUB_OUTPUT (must be lowercase keys)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "dryrun=$DRYRUN" >> $GITHUB_OUTPUT
+        echo "testpypi=$TESTPYPI" >> $GITHUB_OUTPUT
+        echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
+        echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
+        
+        # Debug output
+        echo ""
+        echo "=== Configuration Summary ==="
+        echo "Version: $VERSION"
+        echo "Dry run: $DRYRUN"
+        echo "TestPyPI: $TESTPYPI"
+        echo "Build Type: $BUILD_TYPE"
+        echo "Is Release: $IS_RELEASE"
+        echo "=============================="
+    
+    - name: Update versions in files
+      run: |
+        VERSION="${{ steps.config.outputs.version }}"
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+        echo "Updated pyproject.toml and Cargo.toml version to $VERSION"
+
+  build-linux-x86_64:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-gnu
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+    
+    - name: Install maturin
+      run: pip install maturin
+
+    - name: Update versions
+      run: |
+        VERSION="${{ needs.prepare.outputs.version }}"
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+    
+    - name: Build for Linux x86_64
+      run: maturin build --release --target x86_64-unknown-linux-gnu --features cert-pinning
+    
+    - name: Upload Linux x86_64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-linux-x86_64
+        path: target/wheels/*.whl
+
+  build-linux-arm64:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-unknown-linux-gnu
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+        # Install cross-compilation toolchain for ARM64
+        sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+    
+    - name: Install maturin
+      run: pip install maturin
+
+    - name: Update versions
+      run: |
+        VERSION="${{ needs.prepare.outputs.version }}"
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+    
+    - name: Build for Linux ARM64
+      run: maturin build --release --target aarch64-unknown-linux-gnu --features cert-pinning
+    
+    - name: Upload Linux ARM64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-linux-arm64
+        path: target/wheels/*.whl
+
+  build-macos-x86_64:
+    needs: prepare
+    runs-on: macos-15-intel
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-apple-darwin
+    
+    - name: Install maturin
+      run: pip install maturin
+
+    - name: Update versions
+      run: |
+        VERSION="${{ needs.prepare.outputs.version }}"
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+    
+    - name: Build for macOS x86_64
+      run: maturin build --release --target x86_64-apple-darwin --features cert-pinning
+    
+    - name: Upload macOS x86_64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-macos-x86_64
+        path: target/wheels/*.whl
+
+  build-macos-arm64:
+    needs: prepare
+    runs-on: macos-15
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin
+    
+    - name: Install maturin
+      run: pip install maturin
+    
+    - name: Update versions
+      run: |
+        VERSION="${{ needs.prepare.outputs.version }}"
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+
+    - name: Build for macOS ARM64
+      run: maturin build --release --target aarch64-apple-darwin --features cert-pinning
+    
+    - name: Upload macOS ARM64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-macos-arm64
+        path: target/wheels/*.whl
+
+  build-windows-x64:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-msvc
+    
+    - name: Install maturin
+      run: pip install maturin
+    
+    - name: Update versions
+      shell: pwsh
+      run: |
+        $version = "${{ needs.prepare.outputs.version }}"
+        (Get-Content pyproject.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content pyproject.toml
+        (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content Cargo.toml
+
+    - name: Build for Windows x64
+      run: maturin build --release --target x86_64-pc-windows-msvc --features cert-pinning
+    
+    - name: Upload Windows x64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-windows-x64
+        path: target/wheels/*.whl
+
+  build-windows-arm64:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-pc-windows-msvc
+    
+    - name: Install maturin
+      run: pip install maturin
+    
+    - name: Update versions
+      shell: pwsh
+      run: |
+        $version = "${{ needs.prepare.outputs.version }}"
+        (Get-Content pyproject.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content pyproject.toml
+        (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content Cargo.toml
+
+    - name: Build for Windows ARM64
+      run: maturin build --release --target aarch64-pc-windows-msvc --features cert-pinning
+    
+    - name: Upload Windows ARM64 wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-windows-arm64
+        path: target/wheels/*.whl
+
+  publish:
+    needs: [prepare, build-linux-x86_64, build-linux-arm64, build-macos-x86_64, build-macos-arm64, build-windows-x64, build-windows-arm64]
+    runs-on: ubuntu-22.04
+    if: needs.prepare.outputs.is_release == 'true'
+    permissions:
+      id-token: write  # Required for OIDC
+      contents: read   # Required for checkout
+    
+    steps:
+    - name: Download all wheels
+      uses: actions/download-artifact@v4
+      with:
+        path: wheels/
+    
+    - name: Combine all wheels
+      run: |
+        mkdir -p dist
+        find wheels/ -name "*.whl" -exec cp {} dist/ \;
+        echo "📦 All wheels combined:"
+        ls -la dist/
+    
+    - name: Verify publish target
+      run: |
+        echo "=== Publish Target Verification ==="
+        echo "dryrun: '${{ needs.prepare.outputs.dryrun }}'"
+        echo "testpypi: '${{ needs.prepare.outputs.testpypi }}'"
+        echo "version: '${{ needs.prepare.outputs.version }}'"
+        echo ""
+        
+        DRYRUN="${{ needs.prepare.outputs.dryrun }}"
+        TESTPYPI="${{ needs.prepare.outputs.testpypi }}"
+        VERSION="${{ needs.prepare.outputs.version }}"
+        
+        if [ "$DRYRUN" = "true" ]; then
+          echo "⏸️  Dry run mode: Skipping publication"
+          exit 0
+        fi
+        
+        if [ "$TESTPYPI" = "true" ]; then
+          echo "✓ Publishing to TestPyPI (RC tag: $VERSION)"
+        elif [ "$TESTPYPI" = "false" ]; then
+          echo "✓ Publishing to PyPI (Release tag: $VERSION)"
+        else
+          echo "::error::Invalid testpypi value: $TESTPYPI"
+          exit 1
+        fi
+        echo "===================================="
+    
+    - name: Publish to PyPI
+      if: needs.prepare.outputs.dryrun == 'false' && needs.prepare.outputs.testpypi == 'false'
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        skip-existing: true
+        print-hash: true
+        verbose: true
+        packages-dir: dist/
+    
+    - name: Publish to TestPyPI
+      if: needs.prepare.outputs.dryrun == 'false' && needs.prepare.outputs.testpypi == 'true'
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        skip-existing: true
+        print-hash: true
+        verbose: true
+        packages-dir: dist/
+    
+    - name: Dry run - Skip publishing
+      if: needs.prepare.outputs.dryrun == 'true'
+      run: |
+        if [ "${{ needs.prepare.outputs.testpypi }}" = "true" ]; then
+          echo "🚫 Dry run mode: Would publish to TestPyPI"
+        else
+          echo "🚫 Dry run mode: Would publish to PyPI"
+        fi
+        echo "📦 Built packages:"
+        ls -la dist/
+        echo "✅ Build completed successfully (dry run mode)"
+
