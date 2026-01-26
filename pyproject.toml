@@ -13,10 +13,19 @@ authors = [
 ]
 requires-python = ">=3.8"
 classifiers = [
-    "License :: Other/Proprietary License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Rust",
     "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
 ]
 
 [project.urls]
@@ -27,13 +36,24 @@ Repository = "https://github.com/koalavault/koalavault.ai"
 huggingface = ["huggingface_hub[cli]>=0.16.0"]
 
 [tool.maturin]
+# Build configuration for Rust binary packaged as Python wheel
+# maturin automatically detects [[bin]] in Cargo.toml and packages the binary
+# This allows: pip install koava -> installs pre-compiled binary (no compilation needed)
 manifest-path = "Cargo.toml"
 features = []
 
 [tool.maturin.sdist]
+# Include source code in sdist for open source distribution
+# Users can build from source: pip install koava --no-binary koava
 include = [
     "README.md",
     "LICENSE",
-    "templates/KOALAVAULT_PROPRIETARY_LICENSE.txt",
-    "templates/README_ENCRYPTED_MODEL.md",
+    "templates/**/*",
+    "protocol/**/*",
+    "src/**/*.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "pyproject.toml",
+    "MANIFEST.in",
+    ".github/workflows/**/*",
 ]

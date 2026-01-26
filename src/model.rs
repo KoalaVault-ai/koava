@@ -220,8 +220,7 @@ pub async fn encrypt_safetensors_file(
     })?;
 
     // Create encryption configuration using with_keys and builder pattern
-    let crypto_config = SerializeCryptoConfig::with_keys(enc_key, sign_key)
-        .policy(access_policy);
+    let crypto_config = SerializeCryptoConfig::with_keys(enc_key, sign_key).policy(access_policy);
 
     // Extract all tensors from the deserialized file
     // The library's tensors() method returns Vec<(String, TensorView<'data>)>

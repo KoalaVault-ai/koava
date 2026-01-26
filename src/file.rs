@@ -7,8 +7,7 @@ use crate::error::{KoavaError, Result};
 use crate::utils::FileInfo;
 use crate::ApiResponse;
 use koalavault_protocol::api::{
-    GetModelFileResponse, ModelFilesListResponse, UploadModelFilesRequest,
-    UploadModelFilesResponse,
+    GetModelFileResponse, ModelFilesListResponse, UploadModelFilesRequest, UploadModelFilesResponse,
 };
 
 /// Configuration for model encryption
@@ -92,7 +91,9 @@ impl<'a, C: ApiClient + ?Sized> ModelFileService<'a, C> {
         }
 
         let endpoint = format!("/resources/{}/models/{}/files", username, model_name);
-        let request = UploadModelFilesRequest { files: file_headers };
+        let request = UploadModelFilesRequest {
+            files: file_headers,
+        };
 
         let response: ApiResponse<UploadModelFilesResponse> = self
             .client

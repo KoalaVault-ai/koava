@@ -1,14 +1,21 @@
 # KoalaVault Converter Package Manifest
-# Only include essential files, exclude source code
+# For open source distribution: include source code in sdist
+# This allows users to build from source if needed
 include README.md
 include LICENSE
 include pyproject.toml
-include templates/KOALAVAULT_PROPRIETARY_LICENSE.txt
-include templates/README_ENCRYPTED_MODEL.md
+include Cargo.toml
+include Cargo.lock
+include MANIFEST.in
+recursive-include templates *
+recursive-include protocol *
+recursive-include src *.rs
+recursive-include .github/workflows *.yml
 
-# Explicitly exclude source code
-global-exclude src/
-global-exclude *.rs
+# Exclude build artifacts
 global-exclude target/
 global-exclude dist/
 global-exclude build/
+global-exclude *.pyc
+global-exclude __pycache__/
+global-exclude .git/

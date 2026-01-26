@@ -172,7 +172,10 @@ pub trait ApiClient: Send + Sync {
     fn is_authenticated(&self) -> bool;
 
     /// Login using API key
-    fn login(&mut self, api_key: String) -> impl std::future::Future<Output = Result<String>> + Send;
+    fn login(
+        &mut self,
+        api_key: String,
+    ) -> impl std::future::Future<Output = Result<String>> + Send;
 
     /// Logout and clear tokens
     fn logout(&self) -> impl std::future::Future<Output = Result<()>> + Send;

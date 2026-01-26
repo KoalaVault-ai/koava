@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "KoalaVault model converter tool for producers"
 authors = ["KoalaVault Team"]
-license = "Proprietary"
+license = "Apache-2.0"
 readme = "README.md"
 
 [[bin]]

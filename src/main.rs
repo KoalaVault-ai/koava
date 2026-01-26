@@ -29,11 +29,10 @@ pub use client::{ApiResponse, BaseClient, HttpClient, TokenResponse};
 pub use config::Config;
 pub use error::{KoavaError, Result};
 pub use file::{EncryptionConfig, ModelFileService, ModelMetadata};
-pub use koalavault_protocol::api::{
-    GetModelFileResponse, ModelFilesListResponse, UploadModelFilesRequest,
-    UploadModelFilesResponse,
-};
 pub use key::{KeyService, KeyVault};
+pub use koalavault_protocol::api::{
+    GetModelFileResponse, ModelFilesListResponse, UploadModelFilesRequest, UploadModelFilesResponse,
+};
 pub use model::{encrypt_safetensors_file, format_bytes, ModelDirectory, ModelFile};
 pub use store::{StoredToken, TokenStore, TokenStoreConfig};
 pub use utils::{CryptoUtils, FileHash, FileHeader, FileInfo};

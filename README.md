@@ -124,7 +124,7 @@ koava --config /path/to/config.json status
 
 ## License
 
-Proprietary - See LICENSE file
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) file for details.
 
 ## Links
 

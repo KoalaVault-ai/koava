@@ -424,17 +424,48 @@ jobs:
       contents: read   # Required for checkout
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install maturin
+      run: pip install maturin
+    
+    - name: Update versions
+      run: |
+        VERSION="${{ needs.prepare.outputs.version }}"
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+    
+    - name: Build source distribution (sdist)
+      run: maturin sdist
+    
     - name: Download all wheels
       uses: actions/download-artifact@v4
       with:
         path: wheels/
     
-    - name: Combine all wheels
+    - name: Combine all wheels and sdist
       run: |
         mkdir -p dist
+        # Copy all wheels from artifacts
         find wheels/ -name "*.whl" -exec cp {} dist/ \;
-        echo "📦 All wheels combined:"
-        ls -la dist/
+        # Copy sdist (maturin sdist outputs to target/wheels/)
+        find target/wheels/ -name "*.tar.gz" -exec cp {} dist/ 2>/dev/null \; || true
+        # Also check dist/ directory (some maturin versions output directly there)
+        find . -maxdepth 2 -name "koava-*.tar.gz" -exec cp {} dist/ 2>/dev/null \; || true
+        echo "📦 All packages combined:"
+        ls -lah dist/
+        echo ""
+        echo "Package summary:"
+        echo "- Wheels: $(find dist/ -name '*.whl' | wc -l)"
+        echo "- Source dist: $(find dist/ -name '*.tar.gz' | wc -l)"
     
     - name: Verify publish target
       run: |

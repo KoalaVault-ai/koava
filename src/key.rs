@@ -49,15 +49,9 @@ impl Default for KeyVault {
 
 /// Validate that a JWK contains the expected jku prefix
 fn validate_jku(jwk: &serde_json::Value, key_type: &str) -> Result<()> {
-    let jku = jwk
-        .get("jku")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            KoavaError::validation(format!(
-                "Server returned {} without jku field",
-                key_type
-            ))
-        })?;
+    let jku = jwk.get("jku").and_then(|v| v.as_str()).ok_or_else(|| {
+        KoavaError::validation(format!("Server returned {} without jku field", key_type))
+    })?;
 
     if !jku.starts_with(EXPECTED_JKU_PREFIX) {
         return Err(KoavaError::validation(format!(
