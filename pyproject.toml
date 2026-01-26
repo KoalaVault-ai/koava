@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "koava"
-version = "0.1.0"
+version = "0.0.6"
 description = "KoalaVault model converter tool for producers"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -37,4 +37,3 @@ include = [
     "templates/KOALAVAULT_PROPRIETARY_LICENSE.txt",
     "templates/README_ENCRYPTED_MODEL.md",
 ]
-

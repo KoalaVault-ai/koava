@@ -1,0 +1,14 @@
+# KoalaVault Converter Package Manifest
+# Only include essential files, exclude source code
+include README.md
+include LICENSE
+include pyproject.toml
+include templates/KOALAVAULT_PROPRIETARY_LICENSE.txt
+include templates/README_ENCRYPTED_MODEL.md
+
+# Explicitly exclude source code
+global-exclude src/
+global-exclude *.rs
+global-exclude target/
+global-exclude dist/
+global-exclude build/
