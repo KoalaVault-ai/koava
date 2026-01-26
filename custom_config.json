@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://api.koalavault.ai/api",
+  "timeout": 99,
+  "storage_dir": "/Users/zhuhuifeng/Library/Application Support/koalavault",
+  "use_proxy": true
+}
