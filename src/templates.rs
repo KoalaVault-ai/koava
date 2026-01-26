@@ -1,26 +1,10 @@
-//! Template files for encrypted models
+//! Template files for KoalaVault encrypted models
+//!
+//! This module contains template files that are embedded into the binary
+//! for generating README and LICENSE files for encrypted models.
 
-pub const README_TEMPLATE: &str = r#"<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->
-> **🔐 Encrypted Model Notice**
-> 
-> This model is encrypted using [KoalaVault](https://www.koalavault.ai) CryptoTensors format.
-> 
-> To use this model, you need a valid KoalaVault license. Please visit [KoalaVault](https://www.koalavault.ai) for more information.
-<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->"#;
+/// Template for README.md files of encrypted models
+pub const README_TEMPLATE: &str = include_str!("../templates/README_ENCRYPTED_MODEL.md");
 
-pub const LICENSE_TEMPLATE: &str = r#"KoalaVault Proprietary License
-
-Copyright (c) 2024 KoalaVault
-
-This model is encrypted and protected by KoalaVault.
-
-TERMS OF USE:
-1. This model requires a valid KoalaVault license for decryption and use.
-2. Redistribution of decrypted model files is prohibited.
-3. The encryption keys are bound to your KoalaVault account.
-
-For licensing information, please visit: https://www.koalavault.ai
-
-THE MODEL IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
-"#;
-
+/// Template for LICENSE files of encrypted models
+pub const LICENSE_TEMPLATE: &str = include_str!("../templates/KOALAVAULT_PROPRIETARY_LICENSE.txt");
