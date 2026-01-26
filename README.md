@@ -104,6 +104,18 @@ koava config set-timeout 60
 koava config set-huggingface-cli auto
 ```
 
+### Custom Configuration File
+
+You can specify a custom configuration file path using the global `--config` or `-c` flag. This is useful for managing multiple configuration profiles.
+
+```bash
+# Use a custom config file for a specific command
+koava -c ./my-custom-config.json config show
+
+# All commands support this flag
+koava --config /path/to/config.json status
+```
+
 ## Requirements
 
 - Rust 1.80+ (for building)

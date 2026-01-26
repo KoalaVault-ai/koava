@@ -1,21 +1,80 @@
-KoalaVault Proprietary License
+Koava Tool Proprietary License
 
-Copyright (c) 2024 KoalaVault
+Copyright (c) 2025 KoalaVault. All rights reserved.
 
-All rights reserved.
+IMPORTANT: This is a proprietary software license for the Koava command-line
+tool ("Software"). This license is distinct from any license governing encrypted
+model artifacts (e.g., LICENSE.KOALAVAULT). By installing, copying, or using the
+Software, you agree to the following terms:
 
-This software and associated documentation files (the "Software") are proprietary
-and confidential. Unauthorized copying, modification, distribution, or use of
-this Software, via any medium, is strictly prohibited.
+1. Grant of License
+    Subject to these terms, KoalaVault grants you a limited, non-exclusive,
+    non-transferable, revocable license to install and use the Software solely to
+    produce, encrypt, upload, and manage models and related metadata with the
+    KoalaVault platform and supported repositories.
 
-The Software is provided to authorized users under separate license agreements.
-For licensing information, please contact: koalavaultx@gmail.com
+2. Restrictions
+    You shall not:
+    - modify, adapt, translate, or create derivative works of the Software;
+    - reverse engineer, decompile, or disassemble the Software except to the
+      extent permitted by applicable law notwithstanding this limitation;
+    - remove, obscure, or alter any proprietary notices or branding;
+    - sublicense, lease, rent, sell, or otherwise transfer the Software or any
+      portion thereof;
+    - use the Software in violation of any applicable law, regulation, or
+      third-party platform terms.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Ownership
+    The Software is licensed, not sold. KoalaVault retains all rights, title,
+    and interest in and to the Software, including all intellectual property
+    rights therein. No rights are granted to you other than those expressly
+    stated herein.
 
+4. Updates and Changes
+    KoalaVault may provide updates or modifications to the Software at its sole
+    discretion. Such updates are subject to this License unless accompanied by a
+    separate license. KoalaVault may discontinue, suspend, or modify any
+    features without liability.
+
+5. Data and Telemetry
+    The Software may process data necessary to perform its intended functions
+    (e.g., encryption metadata, configuration, repository information).
+    KoalaVault does not claim ownership over your model content. Any optional
+    telemetry, if present, would be governed by KoalaVault's privacy policy.
+
+6. Third-Party Services and Platforms
+    The Software may interface with third-party platforms (e.g., Hugging Face).
+    You are responsible for complying with relevant third-party terms.
+    KoalaVault is not responsible for third-party services, their availability,
+    or their policies.
+
+7. Confidentiality and Security
+    You are responsible for safeguarding any credentials, keys, or tokens used
+    by the Software. KoalaVault disclaims liability for unauthorized access
+    resulting from improper credential handling outside KoalaVault’s control.
+
+8. NO WARRANTY
+    THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY
+    KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR
+    THAT THE SOFTWARE WILL BE ERROR-FREE, SECURE, OR UNINTERRUPTED.
+
+9. LIMITATION OF LIABILITY
+    TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL KOALAVAULT OR ITS
+    AFFILIATES BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+    OR PUNITIVE DAMAGES, OR ANY LOSS OF REVENUE, PROFITS, DATA, OR USE, EVEN IF
+    ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. KOALAVAULT’S AGGREGATE
+    LIABILITY UNDER THIS LICENSE SHALL NOT EXCEED THE AMOUNTS (IF ANY) PAID BY
+    YOU SPECIFICALLY FOR A LICENSE TO THE SOFTWARE.
+
+10. Termination
+    This License terminates automatically if you breach any term herein. Upon
+    termination, you must cease all use and destroy all copies of the Software.
+    Sections 3, 5, 8, 9, and 11 survive termination.
+
+11. Entire Agreement
+    This License constitutes the entire agreement concerning the Software and
+    supersedes all prior or contemporaneous agreements or representations.
+
+If you have questions about this License, contact KoalaVault via
+https://www.koalavault.ai
