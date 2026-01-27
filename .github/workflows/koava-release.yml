@@ -177,12 +177,58 @@ jobs:
         echo "Is Release: $IS_RELEASE"
         echo "=============================="
     
-    - name: Update versions in files
+    - name: Check versions in files
       run: |
-        VERSION="${{ steps.config.outputs.version }}"
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-        echo "Updated pyproject.toml and Cargo.toml version to $VERSION"
+        EVENT_NAME="${{ github.event_name }}"
+        REF_TYPE="${{ github.ref_type }}"
+        IS_TAG_PUSH=false
+        
+        if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+          IS_TAG_PUSH=true
+          TAG_NAME="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_NAME#v}"
+        fi
+        
+        # Extract version from Cargo.toml
+        CARGO_VERSION=$(grep -E '^version = ' Cargo.toml | sed -E 's/^version = "([^"]+)"/\1/')
+        
+        # Extract version from pyproject.toml
+        PYPROJECT_VERSION=$(grep -E '^version = ' pyproject.toml | sed -E 's/^version = "([^"]+)"/\1/')
+        
+        echo "=== Version Check ==="
+        echo "Cargo.toml version: $CARGO_VERSION"
+        echo "pyproject.toml version: $PYPROJECT_VERSION"
+        
+        if [ "$IS_TAG_PUSH" = "true" ]; then
+          echo "Tag version: $TAG_VERSION"
+          echo ""
+          echo "Checking three-way version match (Cargo.toml, pyproject.toml, and tag)..."
+          
+          # Check if all three versions match
+          if [ "$CARGO_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Version mismatch: Cargo.toml has '$CARGO_VERSION' but pyproject.toml has '$PYPROJECT_VERSION'"
+            exit 1
+          fi
+          
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Version mismatch: Cargo.toml/pyproject.toml have '$CARGO_VERSION' but tag has '$TAG_VERSION'"
+            exit 1
+          fi
+          
+          echo "✓ All three versions match: $CARGO_VERSION"
+        else
+          echo ""
+          echo "Checking two-way version match (Cargo.toml and pyproject.toml)..."
+          
+          # Check if Cargo.toml and pyproject.toml versions match
+          if [ "$CARGO_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Version mismatch: Cargo.toml has '$CARGO_VERSION' but pyproject.toml has '$PYPROJECT_VERSION'"
+            exit 1
+          fi
+          
+          echo "✓ Both files have the same version: $CARGO_VERSION"
+        fi
+        echo "===================="
 
   build-linux-x86_64:
     needs: prepare
@@ -211,12 +257,6 @@ jobs:
     - name: Install maturin
       run: pip install maturin
 
-    - name: Update versions
-      run: |
-        VERSION="${{ needs.prepare.outputs.version }}"
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-    
     - name: Build for Linux x86_64
       run: maturin build --release --target x86_64-unknown-linux-gnu --features cert-pinning
     
@@ -270,12 +310,6 @@ jobs:
     - name: Install maturin
       run: pip install maturin
 
-    - name: Update versions
-      run: |
-        VERSION="${{ needs.prepare.outputs.version }}"
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-    
     - name: Build for Linux ARM64
       run: maturin build --release --target aarch64-unknown-linux-gnu --features cert-pinning
     
@@ -307,12 +341,6 @@ jobs:
     - name: Install maturin
       run: pip install maturin
 
-    - name: Update versions
-      run: |
-        VERSION="${{ needs.prepare.outputs.version }}"
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-    
     - name: Build for macOS x86_64
       run: maturin build --release --target x86_64-apple-darwin --features cert-pinning
     
@@ -343,12 +371,6 @@ jobs:
     
     - name: Install maturin
       run: pip install maturin
-    
-    - name: Update versions
-      run: |
-        VERSION="${{ needs.prepare.outputs.version }}"
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 
     - name: Build for macOS ARM64
       run: maturin build --release --target aarch64-apple-darwin --features cert-pinning
@@ -380,13 +402,6 @@ jobs:
     
     - name: Install maturin
       run: pip install maturin
-    
-    - name: Update versions
-      shell: pwsh
-      run: |
-        $version = "${{ needs.prepare.outputs.version }}"
-        (Get-Content pyproject.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content pyproject.toml
-        (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content Cargo.toml
 
     - name: Build for Windows x64
       run: maturin build --release --target x86_64-pc-windows-msvc --features cert-pinning
@@ -418,13 +433,6 @@ jobs:
     
     - name: Install maturin
       run: pip install maturin
-    
-    - name: Update versions
-      shell: pwsh
-      run: |
-        $version = "${{ needs.prepare.outputs.version }}"
-        (Get-Content pyproject.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content pyproject.toml
-        (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$version`"" | Set-Content Cargo.toml
 
     - name: Build for Windows ARM64
       run: maturin build --release --target aarch64-pc-windows-msvc --features cert-pinning
@@ -457,12 +465,6 @@ jobs:
     
     - name: Install maturin
       run: pip install maturin
-    
-    - name: Update versions
-      run: |
-        VERSION="${{ needs.prepare.outputs.version }}"
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
     
     - name: Build source distribution (sdist)
       run: maturin sdist
