@@ -1,7 +1,9 @@
-name: Basic Test
+name: CI
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 env:
@@ -9,6 +11,7 @@ env:
 
 jobs:
   test:
+    name: Test & Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +19,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       
       - name: Cache cargo
         uses: actions/cache@v4
@@ -27,12 +30,21 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
       - name: Build
         run: cargo build --all-features
       
-      - name: Run tests
+      - name: Run Tests
         run: cargo test --all-features
-      
+
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings
 
+      - name: Install Tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Coverage Check
+        run: |
+          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml

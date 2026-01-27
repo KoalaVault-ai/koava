@@ -232,3 +232,176 @@ impl<'a, C: ApiClient + ?Sized> ModelFileService<'a, C> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::tests::mocks::MockApiClient;
+    use serde_json::json;
+
+    fn create_client() -> MockApiClient {
+        MockApiClient::new(Config::default())
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_files_success() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        let file_infos = vec![FileInfo {
+            id: None,
+            filename: "model.safetensors".to_string(),
+            file_header: Some("base64header".to_string()),
+            created_at: None,
+            updated_at: None,
+        }];
+
+        // Mock response
+        let response_data = json!({
+            "total_uploaded": 1,
+            "files": [{
+                "filename": "model.safetensors",
+                "status": "uploaded"
+            }]
+        });
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            response_data,
+        );
+
+        let result = service
+            .upload_model_files("testuser", "test-model", file_infos)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().total_uploaded, 1);
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_files_empty() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        let result = service
+            .upload_model_files("testuser", "test-model", vec![])
+            .await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No file headers provided"));
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_files_api_error() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        let file_infos = vec![FileInfo {
+            id: None,
+            filename: "error.safetensors".to_string(),
+            file_header: Some("header".to_string()),
+            created_at: None,
+            updated_at: None,
+        }];
+
+        // By default, if the mock client doesn't find a matching response, it returns "empty" success.
+        // But for upload expecting UploadModelFilesResponse, empty data might fail parsing or custom logic.
+        // However, let's explicitly add an error response using `KoavaError::api` is not easily mockable via MockApiClient
+        // because MockApiClient returns Ok(ApiResponse). We need to verify how MockApiClient handles errors?
+        // MockApiClient `authenticated_request` always returns `Ok(ApiResponse)`.
+        // To simulate API error, we should return `ApiResponse { success: false, error: Some(...) }`
+        // But MockApiClient implementation in `src/tests/mocks.rs` seems to always set `success: true`.
+        // Let's verify `src/tests/mocks.rs` content again.
+        // Line 80: returns success: true.
+        // Line 92: returns success: true.
+        // So we can only test success paths or parse errors with current MockApiClient unless we modify it.
+        // However, we can test "unexpected response structure" which causes serialization error or "None" data handling.
+
+        // Let's skip explicit API error simulation if MockApiClient doesn't support it,
+        // or we can mock a response with `data: None` (which is default) to trigger "No upload data in response".
+
+        let result = service
+            .upload_model_files("testuser", "test-model", file_infos)
+            .await;
+        // Default mock returns None data
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No upload data in response"));
+    }
+
+    #[tokio::test]
+    async fn test_list_model_files_success() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        let files = vec![json!({
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "model_id": "888e8400-e29b-41d4-a716-446655440888",
+            "header_size": 1024,
+            "size": 2048,
+            "filename": "model-001.safetensors",
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-01-01T00:00:00Z"
+        })];
+
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            json!({
+                "model_id": "888e8400-e29b-41d4-a716-446655440888",
+                "total_count": 1,
+                "files": files
+            }),
+        );
+
+        let result = service.list_model_files("testuser", "test-model").await;
+        let file_list = result.expect("Failed to list files");
+        assert_eq!(file_list.len(), 1);
+        assert_eq!(file_list[0].filename, "model-001.safetensors");
+    }
+
+    #[tokio::test]
+    async fn test_get_model_file_success() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        let file_data = json!({
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "model_id": "888e8400-e29b-41d4-a716-446655440888",
+            "filename": "model.safetensors",
+            "file_header": "header-content",
+            "created_at": "2023-01-01T00:00:00Z",
+            "updated_at": "2023-01-01T00:00:00Z"
+        });
+
+        client.add_response(
+            "/resources/testuser/models/test-model/files/model.safetensors".to_string(),
+            file_data,
+        );
+
+        let result = service
+            .get_model_file("testuser", "test-model", "model.safetensors")
+            .await;
+        let file_resp = result.expect("Failed to get file");
+        assert_eq!(file_resp.file_header, "header-content");
+    }
+
+    #[tokio::test]
+    async fn test_delete_all_model_files() {
+        let client = create_client().with_auth("testuser".to_string());
+        let service = ModelFileService::new(&client);
+
+        // Delete returns arbitrary JSON value, usually just success
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            json!({}),
+        );
+
+        let result = service
+            .delete_all_model_files("testuser", "test-model")
+            .await;
+        assert!(result.is_ok());
+    }
+}

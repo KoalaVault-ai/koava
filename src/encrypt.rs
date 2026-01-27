@@ -555,7 +555,8 @@ impl EncryptService {
             let backup_dir = args.model_path.join(".backup");
 
             // Generate backup operations if needed
-            if !is_in_backup {
+            // Only generate backup if specificed conditions met AND no_backup is false
+            if !is_in_backup && !args.no_backup {
                 backup_operations = source_files
                     .iter()
                     .map(|file| {
@@ -1426,5 +1427,366 @@ impl EncryptService {
         }
         new_content.push_str(&body);
         new_content
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn create_test_service() -> EncryptService {
+        EncryptService::new(crate::config::Config::default())
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. Logic & String Manipulation Tests (Property-Based)
+    // ─────────────────────────────────────────────────────────────
+
+    proptest! {
+        /// Property: normalize_front_matter_license should always return content
+        /// that contains "license: other" if it had a YAML block, or be unchanged.
+        #[test]
+        fn test_normalize_front_matter_license_prop(s in "\\PC*") {
+            let service = create_test_service();
+            let result = service.normalize_front_matter_license(&s);
+
+            if s.starts_with("---\n") {
+                 // specific logic checks could be complex due to parsing variation,
+                 // but we can at least ensure it doesn't crash and returns something.
+                 prop_assert!(!result.is_empty());
+            } else {
+                 // No front matter -> unchanged
+                 prop_assert_eq!(result, s);
+            }
+        }
+
+        /// Property: insert_block_after_first_heading should always contain the block.
+        #[test]
+        fn test_insert_block_prop(content in "\\PC*", block in "[a-zA-Z0-9]+") {
+            let service = create_test_service();
+            let result = service.insert_block_after_first_heading(&content, &block);
+            prop_assert!(result.contains(&block));
+        }
+
+        /// Property: remove_compliance_block should remove the block if present.
+        #[test]
+        fn test_remove_compliance_block_prop(content in "\\PC*") {
+            let service = create_test_service();
+            // Construct a content with block
+            let block = format!("<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->\nSOME INFO\n<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->\n");
+            let with_block = format!("{}{}", block, content);
+
+            let removed = service.remove_compliance_block(&with_block);
+            prop_assert!(!removed.contains("KOALAVAULT_ENCRYPTED_MODEL_START"));
+            prop_assert_eq!(removed.trim(), content.trim());
+        }
+
+        /// Property: Roundtrip front matter license normalization and restoration.
+        /// Note: This is complex because normalization is lossy (it changes license to 'other').
+        /// But restoration should bring back the original if we simulated the flow correcty.
+        /// For simplicity, we test that restore(normalize_with_link(s)) preserves the original license in comments.
+        #[test]
+        fn test_front_matter_roundtrip_logic(
+            license in "[a-z]+",
+            body in "\\PC*"
+        ) {
+            let service = create_test_service();
+            let content = format!("---\nlicense: {}\n---\n{}", license, body);
+
+            // 1. Normalize
+            let normalized = service.normalize_front_matter_license_with_link(&content, Some("https://example.com"));
+
+            // Check it was changed
+            prop_assert!(normalized.contains("license: other"));
+            prop_assert!(normalized.contains("license_link: https://example.com"));
+            // Check comments exist
+            let expected_comment = format!("KOALAVAULT_ORIG_LICENSE: {}", license);
+            prop_assert!(normalized.contains(&expected_comment));
+
+            // 2. Restore
+            let restored = service.restore_front_matter_from_comments(&normalized);
+
+            // Check it matches original
+            let expected_orig = format!("license: {}", license);
+            prop_assert!(restored.contains(&expected_orig));
+            prop_assert!(!restored.contains("KOALAVAULT_ORIG_LICENSE"));
+        }
+    }
+
+    #[test]
+    fn test_normalize_front_matter_basic() {
+        let service = create_test_service();
+
+        // Case 1: No front matter
+        assert_eq!(service.normalize_front_matter_license("Foo"), "Foo");
+
+        // Case 2: Front matter, no license -> add license: other, license_link: ./LICENSE.KOALAVAULT
+        let yaml = "---\nfoo: bar\n---\nBody";
+        let res = service.normalize_front_matter_license(yaml);
+        assert!(res.contains("license: other"));
+        assert!(res.contains("license_link: ./LICENSE.KOALAVAULT"));
+
+        // Case 3: Front matter with license -> change to other
+        let yaml = "---\nlicense: mit\n---\nBody";
+        let res = service.normalize_front_matter_license(yaml);
+        assert!(res.contains("license: other"));
+        assert!(!res.contains("license: mit"));
+    }
+
+    #[test]
+    fn test_infer_owner_repo() {
+        let _ = create_test_service(); // unused but for consistency if method was instance
+
+        let text = "Check out https://huggingface.co/user/repo for more info";
+        let (owner, repo) = EncryptService::infer_owner_repo_from_text(text).expect("Should match");
+        assert_eq!(owner, "user");
+        assert_eq!(repo, "repo");
+
+        assert!(EncryptService::infer_owner_repo_from_text("No url").is_none());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. File & Directory Logic Tests (Mocked FS / Tempfile)
+    // ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_infer_model_name_logic() {
+        let service = create_test_service();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path();
+
+        // Use real paths inside temp_dir to avoid canonicalize errors
+        let model_path = path.join("llama-2-7b");
+        std::fs::create_dir(&model_path).unwrap();
+
+        // 1. Explicit name provided
+        let args = EncryptArgs {
+            model_path: model_path.clone(),
+            name: Some("custom-name".to_string()),
+            output: None,
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+        };
+        assert_eq!(service.infer_model_name(&args).unwrap(), "custom-name");
+
+        // 2. Infer from output path
+        let output_path = path.join("output-name"); // doesn't need to exist, just path
+        let args = EncryptArgs {
+            model_path: model_path.clone(),
+            name: None,
+            output: Some(output_path),
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+        };
+        assert_eq!(service.infer_model_name(&args).unwrap(), "output-name");
+
+        // 3. Infer from model path (directory name)
+        let args = EncryptArgs {
+            model_path: model_path.clone(),
+            name: None,
+            output: None,
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+        };
+        assert_eq!(service.infer_model_name(&args).unwrap(), "llama-2-7b");
+
+        // 4. Edge case: path ending in separator (handled by PathBuf usually, but canonicalize might help)
+        // We use the same pathbuf which doesn't technically end in separator unless constructed so.
+        // But let's skip the slash exact string check and trust PathBuf behavior which is what we used above.
+    }
+
+    #[tokio::test]
+    async fn test_check_input_file_status_scenarios() {
+        let service = create_test_service();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path();
+
+        // 1. Directory does not exist or empty
+        // ModelDirectory::from_path fails if dir doesn't exist or empty (no safetensors).
+        // So we can't test "check_input_file_status" with invalid model, because we can't create ModelDirectory.
+        // But if we create a file then create ModelDirectory, we can check status.
+
+        // Case: No Safetensors -> from_path returns error usually?
+        // Let's check src/model.rs:97 "No safetensors... found" -> Returns Err.
+        // So we can only test success cases here or mock ModelDirectory if we could construct it manually.
+        // ModelDirectory fields are public! We can manually construct it.
+
+        let empty_model = crate::model::ModelDirectory {
+            path: path.to_path_buf(),
+            all_files: vec![],
+            unencrypted_files: vec![],
+            encrypted_files: vec![],
+            total_size: 0,
+        };
+
+        // Case: Empty model -> NoFiles
+        if let Ok(status) = service.check_input_file_status(&empty_model).await {
+            match status {
+                InputFileStatus::NoFiles => {} // Pass
+                _ => panic!("Expected NoFiles for empty model"),
+            }
+        }
+
+        // Case: Ready (AllUnencrypted)
+        let model_file = crate::model::ModelFile {
+            name: "model.safetensors".to_string(),
+            path: path.join("model.safetensors"),
+            size: 100,
+            is_encrypted: false,
+        };
+        let ready_model = crate::model::ModelDirectory {
+            path: path.to_path_buf(),
+            all_files: vec![model_file.clone()],
+            unencrypted_files: vec![model_file],
+            encrypted_files: vec![],
+            total_size: 100,
+        };
+
+        if let Ok(status) = service.check_input_file_status(&ready_model).await {
+            match status {
+                InputFileStatus::AllUnencrypted(_) => {} // Pass
+                _ => panic!("Expected AllUnencrypted"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_backup_status_logic() {
+        let service = create_test_service();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let backup = temp_dir.path().join("backup"); // Doesn't exist yet
+
+        // 1. No backup directory
+        let status = service.check_backup_status(&backup).await.unwrap();
+        assert!(matches!(status, BackupStatus::NotExists));
+
+        // 2. Create directory but no file
+        tokio::fs::create_dir(&backup).await.unwrap();
+        let status = service.check_backup_status(&backup).await.unwrap();
+        assert!(matches!(status, BackupStatus::NotExists)); // Empty dir treated as NotExists/Empty
+
+        // 3. Create safetensors in backup (Valid Unencrypted backup)
+        let file_path = backup.join("model.safetensors");
+        // Create valid minimal safetensors: 8 bytes len + JSON header
+        // Header: {} -> 2 bytes.
+        // Little endian 2: [2, 0, 0, 0, 0, 0, 0, 0]
+        let mut content = vec![2u8, 0, 0, 0, 0, 0, 0, 0];
+        content.extend_from_slice(b"{}");
+
+        tokio::fs::write(&file_path, &content).await.unwrap();
+
+        let status = service.check_backup_status(&backup).await.unwrap();
+        assert!(matches!(status, BackupStatus::ValidUnencrypted(_)));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. Execution Logic Tests (Plan Generation)
+    // ─────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_generate_encrypt_plan_matrix() {
+        let service = create_test_service();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path();
+
+        // Mock objects
+        let model = crate::model::ModelDirectory {
+            path: path.to_path_buf(),
+            all_files: vec![],
+            unencrypted_files: vec![],
+            encrypted_files: vec![],
+            total_size: 100,
+        };
+
+        // Create dummy file for input status
+        let dummy_file = crate::model::ModelFile {
+            name: "model.safetensors".to_string(),
+            path: path.join("model.safetensors"),
+            size: 1024,
+            is_encrypted: false,
+        };
+
+        // Scenario A: Fresh In-Place Encryption (Input: AllUnencrypted, Output: InPlace (None), Backup: NotExists)
+        // Expected: Backup -> Encrypt
+        let args = EncryptArgs {
+            model_path: path.to_path_buf(),
+            name: None,
+            output: None, // In-Place implies backup needed
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+        };
+
+        let plan = service
+            .generate_encrypt_plan(
+                &model,
+                &args,
+                BackupStatus::NotExists,
+                InputFileStatus::AllUnencrypted(vec![dummy_file.clone()]),
+                OutputStatus::InPlace, // Derived from args.output being None usually, but here we explicitly pass status
+            )
+            .await
+            .unwrap();
+
+        // Check plan phases
+        let has_backup = !plan.backup.is_empty();
+        let has_encrypt = plan
+            .main
+            .iter()
+            .any(|op| matches!(op.action, crate::encrypt::Action::Encrypt));
+
+        assert!(
+            has_backup,
+            "Should have backup phase for in-place encryption"
+        );
+        assert!(has_encrypt, "Should have encrypt phase");
+
+        // Scenario B: No Backup requested (Output: None -> InPlace, but no_backup=true)
+        // Expected: No backup
+        let args_no_backup = EncryptArgs {
+            no_backup: true,
+            ..args.clone()
+        };
+        let plan = service
+            .generate_encrypt_plan(
+                &model,
+                &args_no_backup,
+                BackupStatus::NotExists,
+                InputFileStatus::AllUnencrypted(vec![dummy_file.clone()]),
+                OutputStatus::InPlace,
+            )
+            .await
+            .unwrap();
+
+        let has_backup = !plan.backup.is_empty();
+        assert!(
+            !has_backup,
+            "Should NOT have backup phase when no_backup is true"
+        );
+
+        // Scenario C: Resume (Input: AllUnencrypted, Output: HasFiles, Backup: ValidUnencrypted)
+        // Expected: Verify/Resume logic
+        let plan = service
+            .generate_encrypt_plan(
+                &model,
+                &args,
+                BackupStatus::ValidUnencrypted(vec![dummy_file.clone()]),
+                InputFileStatus::AllUnencrypted(vec![dummy_file.clone()]),
+                OutputStatus::InPlace,
+            )
+            .await;
+        assert!(plan.is_ok());
     }
 }

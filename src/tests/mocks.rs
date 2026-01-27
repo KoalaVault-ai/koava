@@ -2,10 +2,19 @@
 
 use crate::client::{ApiClient, ApiResponse};
 use crate::config::Config;
-use crate::error::Result;
+use crate::error::{KoavaError, Result};
 use reqwest::Method;
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Recorded request for verification
+#[derive(Debug, Clone)]
+pub struct RecordedRequest {
+    pub method: Method,
+    pub endpoint: String,
+    pub payload: Option<serde_json::Value>,
+}
 
 /// Simple mock API client for testing
 #[derive(Debug, Clone)]
@@ -14,7 +23,15 @@ pub struct MockApiClient {
     pub username: Option<String>,
     pub config: Config,
     /// Store responses for different endpoints
-    pub responses: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+    /// Key: endpoint
+    /// Value: JSON response data
+    pub responses: Arc<Mutex<HashMap<String, serde_json::Value>>>,
+    /// Store error responses for different endpoints
+    /// Key: endpoint
+    /// Value: KoavaError
+    pub errors: Arc<Mutex<HashMap<String, KoavaError>>>,
+    /// Recorded requests for verification
+    pub requests: Arc<Mutex<Vec<RecordedRequest>>>,
 }
 
 impl MockApiClient {
@@ -23,7 +40,9 @@ impl MockApiClient {
             is_authenticated: false,
             username: None,
             config,
-            responses: Arc::new(Mutex::new(Vec::new())),
+            responses: Arc::new(Mutex::new(HashMap::new())),
+            errors: Arc::new(Mutex::new(HashMap::new())),
+            requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -34,7 +53,15 @@ impl MockApiClient {
     }
 
     pub fn add_response(&self, endpoint: String, response: serde_json::Value) {
-        self.responses.lock().unwrap().push((endpoint, response));
+        self.responses.lock().unwrap().insert(endpoint, response);
+    }
+
+    pub fn add_error(&self, endpoint: String, error: KoavaError) {
+        self.errors.lock().unwrap().insert(endpoint, error);
+    }
+
+    pub fn get_requests(&self) -> Vec<RecordedRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -63,28 +90,44 @@ impl ApiClient for MockApiClient {
 
     async fn authenticated_request<T, R>(
         &self,
-        _method: Method,
+        method: Method,
         endpoint: &str,
-        _payload: Option<&T>,
+        payload: Option<&T>,
     ) -> Result<ApiResponse<R>>
     where
         T: Serialize + Send + Sync + 'static,
         R: DeserializeOwned + Send + 'static,
     {
+        // Record the request
+        let payload_json = if let Some(p) = payload {
+            Some(serde_json::to_value(p).unwrap_or(serde_json::Value::Null))
+        } else {
+            None
+        };
+
+        self.requests.lock().unwrap().push(RecordedRequest {
+            method: method.clone(),
+            endpoint: endpoint.to_string(),
+            payload: payload_json,
+        });
+
+        // Check for specific error first
+        if let Some(err) = self.errors.lock().unwrap().get(endpoint) {
+            return Err(err.clone());
+        }
+
         // Find matching response
         let responses = self.responses.lock().unwrap();
-        for (ep, response) in responses.iter() {
-            if ep == endpoint {
-                let data: R = serde_json::from_value(response.clone())
-                    .map_err(|e| crate::error::KoavaError::serialization(e.to_string()))?;
-                return Ok(ApiResponse {
-                    success: true,
-                    data: Some(data),
-                    message: None,
-                    error: None,
-                    timestamp: chrono::Utc::now(),
-                });
-            }
+        if let Some(response) = responses.get(endpoint) {
+            let data: R = serde_json::from_value(response.clone())
+                .map_err(|e| crate::error::KoavaError::serialization(e.to_string()))?;
+            return Ok(ApiResponse {
+                success: true,
+                data: Some(data),
+                message: None,
+                error: None,
+                timestamp: chrono::Utc::now(),
+            });
         }
 
         // Default empty response

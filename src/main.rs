@@ -141,7 +141,7 @@ pub enum Commands {
     Config(ConfigArgs),
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct EncryptArgs {
     /// Path to the model directory containing safetensors files
     pub model_path: PathBuf,

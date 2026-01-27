@@ -7,7 +7,6 @@
 
 #[cfg(test)]
 pub mod test_helpers {
-    use fake::Fake;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -21,24 +20,6 @@ pub mod test_helpers {
         let file_path = dir.path().join(filename);
         std::fs::write(&file_path, content).expect("Failed to write temp file");
         file_path
-    }
-
-    /// Generate a random string using fake
-    pub fn random_string(len: usize) -> String {
-        use fake::faker::lorem::en::*;
-        Word().fake::<String>().chars().cycle().take(len).collect()
-    }
-
-    /// Generate a random username
-    pub fn random_username() -> String {
-        use fake::faker::internet::en::*;
-        Username().fake()
-    }
-
-    /// Generate a random API key
-    pub fn random_api_key() -> String {
-        use fake::faker::internet::en::*;
-        Password(20..40).fake()
     }
 
     /// Create a mock safetensors header

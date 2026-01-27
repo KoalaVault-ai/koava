@@ -799,6 +799,142 @@ impl From<std::path::StripPrefixError> for KoavaError {
     }
 }
 
+// Manual Clone implementation that drops non-cloneable sources
+impl Clone for KoavaError {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Authentication {
+                code,
+                message,
+                source: _,
+            } => Self::Authentication {
+                code: *code,
+                message: message.clone(),
+                source: None,
+            },
+            Self::Authorization { code, message } => Self::Authorization {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Network {
+                code,
+                message,
+                source: _,
+            } => Self::Network {
+                code: *code,
+                message: message.clone(),
+                source: None,
+            },
+            Self::Api {
+                code,
+                status,
+                message,
+            } => Self::Api {
+                code: *code,
+                status: *status,
+                message: message.clone(),
+            },
+            Self::Io {
+                code,
+                context,
+                message,
+                source: _,
+            } => Self::Io {
+                code: *code,
+                context: context.clone(),
+                message: message.clone(),
+                source: None,
+            },
+            Self::Path {
+                code,
+                message,
+                path,
+            } => Self::Path {
+                code: *code,
+                message: message.clone(),
+                path: path.clone(),
+            },
+            Self::Config {
+                code,
+                message,
+                source: _,
+            } => Self::Config {
+                code: *code,
+                message: message.clone(),
+                source: None,
+            },
+            Self::Validation {
+                code,
+                message,
+                field,
+            } => Self::Validation {
+                code: *code,
+                message: message.clone(),
+                field: field.clone(),
+            },
+            Self::InvalidInput { code, message } => Self::InvalidInput {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Crypto { code, message } => Self::Crypto {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Key { code, message } => Self::Key {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::NotFound { code, resource } => Self::NotFound {
+                code: *code,
+                resource: resource.clone(),
+            },
+            Self::AlreadyExists { code, resource } => Self::AlreadyExists {
+                code: *code,
+                resource: resource.clone(),
+            },
+            Self::Upload { code, message } => Self::Upload {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Model {
+                code,
+                message,
+                model_name,
+            } => Self::Model {
+                code: *code,
+                message: message.clone(),
+                model_name: model_name.clone(),
+            },
+            Self::Deploy { code, message } => Self::Deploy {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Attestation { code, message } => Self::Attestation {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Ui { code, message } => Self::Ui {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Internal { code, message } => Self::Internal {
+                code: *code,
+                message: message.clone(),
+            },
+            Self::Serialization {
+                code,
+                message,
+                source: _,
+            } => Self::Serialization {
+                code: *code,
+                message: message.clone(),
+                source: None,
+            },
+            Self::Timeout => Self::Timeout,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

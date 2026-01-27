@@ -652,3 +652,131 @@ impl ModelService {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::utils::test_helpers::{create_mock_safetensors_file, create_temp_dir};
+    use std::fs::File;
+
+    #[test]
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(100), "100 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn test_extract_metadata_from_header_too_short() {
+        let content = vec![0u8; 4];
+        let result = extract_metadata_from_header(&content);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+
+        // Also test header len check
+        let content = 100u64.to_le_bytes().to_vec();
+        // length says 100, but we provide 0 more
+        let result = extract_metadata_from_header(&content);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extract_metadata_no_metadata_field() {
+        let json = r#"{"other": "field"}"#;
+        let json_bytes = json.as_bytes();
+        let len = json_bytes.len() as u64;
+
+        let mut content = len.to_le_bytes().to_vec();
+        content.extend_from_slice(json_bytes);
+
+        let result = extract_metadata_from_header(&content).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_metadata_with_reserved_fields() {
+        let json = r#"{"__metadata__": {"__reserved": "val", "user": "data", "test": "123"}}"#;
+        let json_bytes = json.as_bytes();
+        let len = json_bytes.len() as u64;
+
+        let mut content = len.to_le_bytes().to_vec();
+        content.extend_from_slice(json_bytes);
+
+        let result = extract_metadata_from_header(&content).unwrap().unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get("user").unwrap(), "data");
+        assert_eq!(result.get("test").unwrap(), "123");
+        assert!(!result.contains_key("__reserved"));
+    }
+
+    #[tokio::test]
+    async fn test_model_directory_not_exists() {
+        let path = Path::new("/non/existent/path/12345");
+        let result = ModelDirectory::from_path(path).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_model_directory_empty() {
+        let temp_dir = create_temp_dir();
+        let result = ModelDirectory::from_path(temp_dir.path()).await;
+        assert!(result.is_err()); // Should fail with "No safetensors or cryptotensors files found"
+    }
+
+    #[tokio::test]
+    async fn test_model_directory_scan() {
+        let temp_dir = create_temp_dir();
+
+        // Create a regular file (ignored)
+        let _ = File::create(temp_dir.path().join("readme.md")).unwrap();
+
+        // Create a unencrypted safetensors file
+        let _ = create_mock_safetensors_file(&temp_dir, "model-01.safetensors", false);
+
+        // Create an encrypted safetensors file
+        let _ = create_mock_safetensors_file(&temp_dir, "model-02.safetensors", true);
+
+        let dir = ModelDirectory::from_path(temp_dir.path()).await.unwrap();
+
+        assert_eq!(dir.all_files.len(), 2);
+
+        assert!(!dir.is_fully_encrypted());
+        assert_eq!(dir.unencrypted_files.len(), 1);
+        assert_eq!(dir.unencrypted_files[0].name, "model-01.safetensors");
+
+        assert_eq!(dir.encrypted_files.len(), 1);
+        assert_eq!(dir.encrypted_files[0].name, "model-02.safetensors");
+    }
+
+    #[tokio::test]
+    async fn test_model_directory_fully_encrypted() {
+        let temp_dir = create_temp_dir();
+        create_mock_safetensors_file(&temp_dir, "model-01.safetensors", true);
+        create_mock_safetensors_file(&temp_dir, "model-02.safetensors", true);
+
+        let dir = ModelDirectory::from_path(temp_dir.path()).await.unwrap();
+
+        assert!(dir.is_fully_encrypted());
+        assert_eq!(dir.all_files.len(), 2);
+        assert_eq!(dir.unencrypted_files.len(), 0);
+        assert_eq!(dir.encrypted_files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_model_file_from_path() {
+        let temp_dir = create_temp_dir();
+        let path = create_mock_safetensors_file(&temp_dir, "test.safetensors", false);
+
+        let model_file = ModelFile::from_path(&path).await.unwrap();
+        assert_eq!(model_file.name, "test.safetensors");
+        assert!(!model_file.is_encrypted);
+
+        let path_enc = create_mock_safetensors_file(&temp_dir, "test_enc.safetensors", true);
+        let model_file_enc = ModelFile::from_path(&path_enc).await.unwrap();
+        assert_eq!(model_file_enc.name, "test_enc.safetensors");
+        assert!(model_file_enc.is_encrypted);
+    }
+}

@@ -250,3 +250,206 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
         Ok(file_infos)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::tests::mocks::MockApiClient;
+    use crate::tests::utils::test_helpers::*;
+    use reqwest::Method;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn create_client() -> MockApiClient {
+        MockApiClient::new(Config::default())
+    }
+
+    async fn create_test_model_directory(temp_dir: &tempfile::TempDir) -> ModelDirectory {
+        let model_dir_path = temp_dir.path().join("test-model");
+        tokio::fs::create_dir(&model_dir_path).await.unwrap();
+
+        // Create encrypted files
+        create_mock_safetensors_file(
+            temp_dir,
+            "test-model/model-00001-of-00002.safetensors",
+            true,
+        );
+        create_mock_safetensors_file(
+            temp_dir,
+            "test-model/model-00002-of-00002.safetensors",
+            true,
+        );
+
+        // Create unencrypted file (should be ignored or warned)
+        create_mock_safetensors_file(temp_dir, "test-model/config.json", false);
+
+        ModelDirectory::from_path(&model_dir_path).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_success() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        let model = create_test_model_directory(&temp_dir).await;
+
+        // Mock upload response
+        let upload_response = json!({
+            "total_uploaded": 2,
+            "files": []
+        });
+
+        // We expect upload for batch. Since we have 2 encrypted files and batch size is 5, it will be 1 request.
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            upload_response,
+        );
+
+        let result = service.upload_model(&model, "test-model", false).await;
+        assert!(result.is_ok());
+
+        // Verify requests - ensure files were uploaded
+        let requests = client.get_requests();
+        let upload_requests: Vec<_> = requests
+            .iter()
+            .filter(|r| r.method == Method::POST && r.endpoint.contains("/files"))
+            .collect();
+
+        assert_eq!(upload_requests.len(), 1);
+
+        // Check payload contains 2 files
+        let payload = upload_requests[0].payload.as_ref().unwrap();
+        let files = payload.get("files").unwrap().as_array().unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_force_mode() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        let model = create_test_model_directory(&temp_dir).await;
+
+        // Mock responses
+        // 1. Delete (for force mode)
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            json!({}),
+        );
+        // 2. Upload
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            json!({ "total_uploaded": 2 }),
+        );
+
+        let result = service.upload_model(&model, "test-model", true).await;
+        assert!(result.is_ok());
+
+        let requests = client.get_requests();
+
+        // Verify delete was called first
+        let delete_requests: Vec<_> = requests
+            .iter()
+            .filter(|r| r.method == Method::DELETE && r.endpoint.contains("/files"))
+            .collect();
+        assert_eq!(delete_requests.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_no_files() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        // Create only unencrypted file, so no files to upload
+        let model_dir_path = temp_dir.path().join("test-model");
+        tokio::fs::create_dir(&model_dir_path).await.unwrap();
+        create_mock_safetensors_file(&temp_dir, "test-model/model.safetensors", false);
+        let model = ModelDirectory::from_path(&model_dir_path).await.unwrap();
+
+        let result = service.upload_model(&model, "test-model", false).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No valid file headers"));
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_api_error() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        let model = create_test_model_directory(&temp_dir).await;
+
+        // Register error response
+        client.add_error(
+            "/resources/testuser/models/test-model/files".to_string(),
+            KoavaError::api(500, "Server Error".to_string()),
+        );
+
+        let result = service.upload_model(&model, "test-model", false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Server Error"));
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_conflict_error_no_force() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        let model = create_test_model_directory(&temp_dir).await;
+
+        // Register conflict error
+        client.add_error(
+            "/resources/testuser/models/test-model/files".to_string(),
+            KoavaError::api(409, "Files already exist".to_string()),
+        );
+
+        let result = service.upload_model(&model, "test-model", false).await;
+        assert!(result.is_err());
+        // Should convert to friendly upload error
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Files already exist on server. Use --force to overwrite"));
+    }
+
+    #[tokio::test]
+    async fn test_upload_model_conflict_error_with_force() {
+        let client = Arc::new(create_client().with_auth("testuser".to_string()));
+        let service = UploadService::new(client.clone(), false);
+
+        let temp_dir = create_temp_dir();
+        let model = create_test_model_directory(&temp_dir).await;
+
+        // 1. Delete succeeds
+        client.add_response(
+            "/resources/testuser/models/test-model/files".to_string(),
+            json!({}),
+        );
+
+        // 2. Upload fails with conflict (simulating race condition or partial delete failure)
+        // Note: Logic says if force is true, we delete first. But if upload still returns 409, we should warn and continue (skip batch).
+        client.add_error(
+            "/resources/testuser/models/test-model/files".to_string(),
+            KoavaError::api(409, "Files already exist".to_string()),
+        );
+
+        let result = service.upload_model(&model, "test-model", true).await;
+
+        // Should succeed (partial success / warning)
+        // Logic: if conflict & force -> warn & continue.
+        // Since we only have 1 batch, it continues and finishes.
+        // But since batch failed, uploaded_count stays 0.
+        // At end: if uploaded_count < file_infos.len(), logs warning.
+        // Method returns Ok(()) unless catastrophic error.
+
+        assert!(result.is_ok());
+    }
+}
