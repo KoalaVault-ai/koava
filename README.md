@@ -1,5 +1,9 @@
 # Koava - KoalaVault Model Converter
 
+[![PyPI version](https://badge.fury.io/py/koava.svg)](https://badge.fury.io/py/koava)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/koava.svg)](https://pypi.org/project/koava/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 Koava is the official CLI tool for encrypting and managing AI models on the [KoalaVault](https://www.koalavault.ai) platform.
 
 ## Features
