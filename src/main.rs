@@ -57,7 +57,7 @@ WORKFLOW:
 
 QUICK START:
   koava login <API_KEY>                      # Authenticate with your API key
-  koava config setup                        # Configure storage directory and other settings
+  koava config show                          # View current configuration settings
   koava push <MODEL_PATH>                   # Complete workflow: create + encrypt + upload
   koava list <MODEL_NAME>                   # List files for your model
   koava remove <MODEL_NAME>                 # Delete model from server

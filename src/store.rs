@@ -138,6 +138,7 @@ impl TokenStore {
             content
         };
 
+        // Deserialize as Option<StoredToken> to handle null values (e.g., after logout)
         self.token = serde_json::from_str(&decrypted_content)
             .map_err(|e| KoavaError::internal(format!("Failed to parse token storage: {}", e)))?;
 
@@ -146,6 +147,16 @@ impl TokenStore {
 
     fn save_tokens(&self) -> Result<()> {
         let path = self.get_storage_path()?;
+
+        // If token is None, delete the file instead of writing null
+        if self.token.is_none() {
+            if path.exists() {
+                fs::remove_file(&path).map_err(|e| {
+                    KoavaError::internal(format!("Failed to remove token storage: {}", e))
+                })?;
+            }
+            return Ok(());
+        }
 
         // Create directory if it doesn't exist
         if let Some(parent) = path.parent() {
