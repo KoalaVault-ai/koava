@@ -1,5 +1,9 @@
 # Koava - KoalaVault Model Converter
 
+[![PyPI version](https://badge.fury.io/py/koava.svg)](https://badge.fury.io/py/koava)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/koava.svg)](https://pypi.org/project/koava/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 Koava is the official CLI tool for encrypting and managing AI models on the [KoalaVault](https://www.koalavault.ai) platform.
 
 ## Features
@@ -104,6 +108,18 @@ koava config set-timeout 60
 koava config set-huggingface-cli auto
 ```
 
+### Custom Configuration File
+
+You can specify a custom configuration file path using the global `--config` or `-c` flag. This is useful for managing multiple configuration profiles.
+
+```bash
+# Use a custom config file for a specific command
+koava -c ./my-custom-config.json config show
+
+# All commands support this flag
+koava --config /path/to/config.json status
+```
+
 ## Requirements
 
 - Rust 1.80+ (for building)
@@ -112,7 +128,7 @@ koava config set-huggingface-cli auto
 
 ## License
 
-Proprietary - See LICENSE file
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) file for details.
 
 ## Links
 

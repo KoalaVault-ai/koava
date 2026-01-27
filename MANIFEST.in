@@ -1,0 +1,21 @@
+# KoalaVault Converter Package Manifest
+# For open source distribution: include source code in sdist
+# This allows users to build from source if needed
+include README.md
+include LICENSE
+include pyproject.toml
+include Cargo.toml
+include Cargo.lock
+include MANIFEST.in
+recursive-include templates *
+recursive-include protocol *
+recursive-include src *.rs
+recursive-include .github/workflows *.yml
+
+# Exclude build artifacts
+global-exclude target/
+global-exclude dist/
+global-exclude build/
+global-exclude *.pyc
+global-exclude __pycache__/
+global-exclude .git/

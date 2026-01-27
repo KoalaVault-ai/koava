@@ -1,0 +1,81 @@
+KoalaVault Proprietary License
+
+Copyright (c) 2025 KoalaVault and respective model rightsholders.
+All rights reserved. Last updated: 2025-10-30
+
+IMPORTANT: This is NOT an open-source license. This license governs the
+redistribution of encrypted model artifacts only. Any decryption, execution, or
+use of the model requires a separate, valid license from KoalaVault (the model
+marketplace that hosts license authorization).
+
+1. Definitions
+    1.1 "Encrypted Artifacts" means the model files provided in encrypted form
+        (e.g., CryptoTensors format), accompanied by metadata.
+    1.2 "Licensed Use" means any action that decrypts, executes, runs inference
+        with, modifies, or otherwise uses the model beyond merely holding or
+        forwarding the Encrypted Artifacts.
+    1.3 "Authorized Tools" means KoalaVault-approved tooling and runtime that
+        validate your license and perform decryption under policy controls.
+
+2. Limited Redistribution Grant (Encrypted Artifacts Only)
+    Subject to this License, you are granted a limited, worldwide, non-exclusive,
+    non-transferable, royalty-free right to possess and redistribute the exact,
+    unmodified Encrypted Artifacts. This grant does NOT include any right to:
+    - decrypt, execute, run inference with, or otherwise use the model;
+    - modify the Encrypted Artifacts or produce derivative works of the model.
+
+3. Licensed Use Requires KoalaVault Authorization
+    Any Licensed Use of the model requires you (or your organization) to obtain
+    and maintain a valid license issued and hosted by KoalaVault, tied to your
+    account/identity. Such license is separate from this redistribution license
+    and may impose additional terms, including usage scope, seat limits, and
+    technical policy controls. The publisher retains all intellectual property
+    rights in the model.
+
+4. Restrictions
+    Unless you have a valid KoalaVault-issued license covering the intended
+    activity, you must NOT:
+    - decrypt, execute, or run inference with the model;
+    - circumvent or attempt to circumvent encryption, license checks, or policy
+      controls;
+    - modify, translate, adapt, or create derivative works from the model;
+    - reverse engineer, decompile, or otherwise attempt to derive source or
+      plaintext weights from the Encrypted Artifacts;
+    - remove, obscure, or alter any proprietary notices or attributions.
+
+5. Attribution and Integrity
+    When redistributing the Encrypted Artifacts, you must:
+    - retain this License file unmodified; and
+    - include a clear notice that Licensed Use requires a KoalaVault license.
+
+6. Termination
+    This License terminates automatically if you breach its terms. Upon
+    termination, you must cease redistribution and destroy copies in your
+    control, except where retention is required by law. Sections 3–9 survive
+    termination.
+
+7. No Warranty
+    THE ENCRYPTED ARTIFACTS ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR THAT
+    ENCRYPTION OR ACCESS CONTROLS ARE ERROR-FREE.
+
+8. Limitation of Liability
+    TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL KOALAVAULT OR THE
+    PUBLISHER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
+    PUNITIVE DAMAGES, OR FOR ANY LOSS OF REVENUE, PROFITS, DATA, OR USE, EVEN IF
+    ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. AGGREGATE LIABILITY SHALL NOT
+    EXCEED THE AMOUNTS (IF ANY) PAID BY YOU FOR A KOALAVAULT LICENSE COVERING THE
+    RELEVANT USE.
+
+9. Platform Compliance (e.g., Hugging Face)
+    When publishing the Encrypted Artifacts on third-party platforms, you must
+    ensure the repository contains: (a) this License; and (b) a compliance notice
+    clearly stating the model is encrypted, not open source, and requires a
+    KoalaVault license for any use beyond redistribution. This helps prevent
+    misrepresentation and user confusion.
+
+10. Contact and Licensing
+    To obtain or manage a license for Licensed Use, visit:
+    https://www.koalavault.ai
+    For compliance or legal inquiries, contact KoalaVault via the website.

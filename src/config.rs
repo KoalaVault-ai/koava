@@ -1,315 +1,43 @@
-//! Configuration management for koava CLI and SDK
+//! Unified configuration for KoalaVault CLI tool
 
-use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use crate::error::{ClientError, Result};
+use crate::error::{KoavaError, Result};
+use crate::security::DEFAULT_SERVER_PUBLIC_KEY;
+use crate::store::TokenStoreConfig;
 
+/// Unified configuration for KoalaVault CLI
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConverterConfig {
+pub struct Config {
+    /// API endpoint URL
+    #[serde(default = "default_endpoint")]
     pub endpoint: String,
-    pub timeout: u64,
-    pub verbose: bool,
-    pub storage_dir: PathBuf,
-    pub token_storage_enabled: bool,
-    pub huggingface_cli_path: Option<PathBuf>,
-}
 
-impl Default for ConverterConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "https://api.koalavault.ai/api".to_string(),
-            timeout: 30,
-            verbose: false,
-            storage_dir: default_storage_dir(),
-            token_storage_enabled: true,
-            huggingface_cli_path: None,
-        }
-    }
-}
-
-impl ConverterConfig {
-    pub async fn load(config_path: Option<&Path>) -> Result<Self> {
-        let config_file = match config_path {
-            Some(path) => path.to_path_buf(),
-            None => default_config_path(),
-        };
-
-        if config_file.exists() {
-            let content = fs::read_to_string(&config_file).await?;
-
-            match serde_json::from_str::<Self>(&content) {
-                Ok(mut config) => {
-                    #[cfg(not(debug_assertions))]
-                    {
-                        config.endpoint = Self::default().endpoint;
-                    }
-
-                    if config.huggingface_cli_path.is_none() {
-                        let _ = config.detect_huggingface_cli().await;
-                    }
-
-                    Ok(config)
-                }
-                Err(_) => {
-                    let mut config = Self::default();
-                    let _ = config.detect_huggingface_cli().await;
-                    config.save(&config_file).await?;
-                    Ok(config)
-                }
-            }
-        } else {
-            let mut config = Self::default();
-            let _ = config.detect_huggingface_cli().await;
-            config.save(&config_file).await?;
-            Ok(config)
-        }
-    }
-
-    pub async fn save(&self, config_path: &Path) -> Result<()> {
-        if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-
-        let content = serde_json::to_string_pretty(self)?;
-        fs::write(config_path, content).await?;
-        Ok(())
-    }
-
-    pub fn to_sdk_config(&self) -> ClientConfig {
-        let normalized_endpoint = if self.endpoint.ends_with("/api") {
-            self.endpoint.clone()
-        } else if self.endpoint.ends_with("/") {
-            format!("{}api", self.endpoint)
-        } else {
-            format!("{}/api", self.endpoint)
-        };
-
-        let use_proxy =
-            !normalized_endpoint.contains("localhost") && !normalized_endpoint.contains("127.0.0.1");
-
-        let mut builder = ClientConfigBuilder::new()
-            .base_url(&normalized_endpoint)
-            .timeout(self.timeout)
-            .verbose(self.verbose)
-            .use_proxy(use_proxy);
-
-        if self.token_storage_enabled {
-            let token_dir = self.storage_dir.join("tokens");
-            let token_config = TokenStorageConfig {
-                enabled: true,
-                storage_path: Some(token_dir.to_string_lossy().to_string()),
-                encryption_key: None,
-            };
-            builder = builder.token_storage(token_config);
-        }
-
-        builder.build().unwrap_or_else(|_| {
-            ClientConfigBuilder::new()
-                .base_url("https://api.koalavault.ai/api")
-                .build()
-                .unwrap()
-        })
-    }
-
-    pub async fn detect_huggingface_cli(&mut self) -> Result<Option<PathBuf>> {
-        if let Some(ref path) = self.huggingface_cli_path {
-            if path.exists() {
-                return Ok(Some(path.clone()));
-            }
-        }
-
-        let possible_names = if cfg!(target_os = "windows") {
-            vec!["hf.exe", "hf"]
-        } else {
-            vec!["hf"]
-        };
-
-        for name in possible_names {
-            if let Ok(path) = which::which(name) {
-                self.huggingface_cli_path = Some(path.clone());
-                self.save(&default_config_path()).await?;
-                return Ok(Some(path));
-            }
-        }
-
-        Ok(None)
-    }
-
-    pub async fn check_huggingface_cli_status(&self) -> Result<HuggingFaceCliStatus> {
-        let cli_path = match &self.huggingface_cli_path {
-            Some(path) if path.exists() => path.clone(),
-            _ => return Ok(HuggingFaceCliStatus::NotFound),
-        };
-
-        if !cli_path.is_file() {
-            return Ok(HuggingFaceCliStatus::NotFound);
-        }
-
-        let output = tokio::process::Command::new(&cli_path)
-            .arg("auth")
-            .arg("whoami")
-            .output()
-            .await;
-
-        match output {
-            Ok(result) if result.status.success() => {
-                let stdout = String::from_utf8_lossy(&result.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&result.stderr).to_string();
-                let merged = if !stdout.trim().is_empty() {
-                    stdout
-                } else {
-                    stderr
-                };
-                let merged_lower = merged.to_lowercase();
-
-                if merged_lower.contains("not logged in") || merged_lower.contains("not authenticated")
-                {
-                    return Ok(HuggingFaceCliStatus::NotLoggedIn);
-                }
-
-                if let Some(username) = parse_hf_whoami_username(&merged) {
-                    Ok(HuggingFaceCliStatus::LoggedIn(username))
-                } else {
-                    let trimmed = merged.trim();
-                    if !trimmed.is_empty() && trimmed.len() < 100 {
-                        Ok(HuggingFaceCliStatus::LoggedIn(trimmed.to_string()))
-                    } else {
-                        Ok(HuggingFaceCliStatus::NotLoggedIn)
-                    }
-                }
-            }
-            Ok(_) => Ok(HuggingFaceCliStatus::NotLoggedIn),
-            Err(_) => Ok(HuggingFaceCliStatus::NotFound),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum HuggingFaceCliStatus {
-    NotFound,
-    NotLoggedIn,
-    LoggedIn(String),
-}
-
-fn parse_hf_whoami_username(raw: &str) -> Option<String> {
-    let cleaned = strip_ansi_codes(raw);
-    let normalized = cleaned.replace('\r', "");
-
-    let first_line = normalized
-        .lines()
-        .find(|l| !l.trim().is_empty())?
-        .trim()
-        .to_string();
-
-    let lower = first_line.to_lowercase();
-    if lower.contains("not logged in") {
-        return None;
-    }
-
-    let mut candidate = first_line.clone();
-    if let Some(pos) = lower.find("logged in as") {
-        let after = &first_line[pos + "logged in as".len()..];
-        candidate = after.trim().to_string();
-    }
-
-    if candidate.contains(':') {
-        if let Some(idx) = candidate.rfind(':') {
-            candidate = candidate[idx + 1..].trim().to_string();
-        }
-    }
-
-    candidate = candidate.trim_matches('"').trim().to_string();
-
-    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.';
-    let mut extracted = String::new();
-    for ch in candidate.chars() {
-        if allowed(ch) {
-            extracted.push(ch);
-        } else if !extracted.is_empty() {
-            break;
-        }
-    }
-
-    if extracted.is_empty() {
-        None
-    } else {
-        Some(extracted)
-    }
-}
-
-fn strip_ansi_codes(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next_ch) = chars.peek() {
-                    chars.next();
-                    if next_ch.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
-pub fn default_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("koalavault")
-}
-
-pub fn default_config_path() -> PathBuf {
-    default_config_dir().join("config.json")
-}
-
-pub fn default_storage_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("koalavault")
-}
-
-/// Token storage configuration
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct TokenStorageConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    pub storage_path: Option<String>,
-    pub encryption_key: Option<String>,
-}
-
-impl From<TokenStorageConfig> for crate::store::TokenStoreConfig {
-    fn from(config: TokenStorageConfig) -> Self {
-        Self {
-            enabled: config.enabled,
-            storage_path: config.storage_path.map(PathBuf::from),
-            encryption_key: config.encryption_key,
-        }
-    }
-}
-
-/// Client configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ClientConfig {
-    pub base_url: String,
+    /// Request timeout in seconds
     #[serde(default = "default_timeout")]
     pub timeout: u64,
-    #[serde(default)]
-    pub verbose: bool,
-    #[serde(default)]
-    pub token_storage: TokenStorageConfig,
+
+    /// Storage directory for local state and tokens
+    #[serde(default = "default_storage_dir")]
+    pub storage_dir: PathBuf,
+
+    /// Hugging Face CLI executable path (optional, auto-detected if not set)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub huggingface_cli_path: Option<PathBuf>,
+
+    /// Use system proxy (default: true)
     #[serde(default = "default_use_proxy")]
     pub use_proxy: bool,
+
+    /// Hardcoded public key for certificate pinning (internal use only, not serialized)
+    #[serde(skip)]
+    server_public_key: String,
+}
+
+fn default_endpoint() -> String {
+    "https://api.koalavault.ai/api".to_string()
 }
 
 fn default_timeout() -> u64 {
@@ -320,156 +48,601 @@ fn default_use_proxy() -> bool {
     true
 }
 
-impl Default for ClientConfig {
+/// Get default storage directory
+pub fn default_storage_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("koalavault")
+}
+
+/// Get default configuration directory
+pub fn default_config_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("koalavault")
+}
+
+/// Get default configuration file path
+pub fn default_config_path() -> PathBuf {
+    default_config_dir().join("config.json")
+}
+
+impl Default for Config {
     fn default() -> Self {
         Self {
-            base_url: "https://api.koalavault.ai/api".to_string(),
+            endpoint: default_endpoint(),
             timeout: default_timeout(),
-            verbose: false,
-            token_storage: TokenStorageConfig::default(),
+            storage_dir: default_storage_dir(),
+            huggingface_cli_path: None,
             use_proxy: default_use_proxy(),
+            server_public_key: DEFAULT_SERVER_PUBLIC_KEY.to_string(),
         }
     }
 }
 
-/// Builder for ClientConfig
-#[derive(Debug, Default)]
-pub struct ClientConfigBuilder {
-    base_url: Option<String>,
-    timeout: Option<u64>,
-    verbose: Option<bool>,
-    token_storage: Option<TokenStorageConfig>,
-    config_file: Option<PathBuf>,
-    use_proxy: Option<bool>,
-}
-
-impl ClientConfigBuilder {
-    pub fn new() -> Self {
-        Self::default()
+impl Config {
+    /// Load configuration from file or create default
+    pub async fn load() -> Result<Self> {
+        Self::load_from(&default_config_path()).await
     }
 
-    pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = Some(base_url.into());
-        self
-    }
+    /// Load configuration from a specific path
+    pub async fn load_from(config_file: &Path) -> Result<Self> {
+        if config_file.exists() {
+            let content = fs::read_to_string(config_file).await?;
 
-    pub fn timeout(mut self, timeout: u64) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
+            match serde_json::from_str::<Self>(&content) {
+                Ok(mut config) => {
+                    // Always set server public key (not serialized)
+                    config.server_public_key = DEFAULT_SERVER_PUBLIC_KEY.to_string();
 
-    pub fn verbose(mut self, verbose: bool) -> Self {
-        self.verbose = Some(verbose);
-        self
-    }
+                    // In release mode, enforce default endpoint for security
+                    #[cfg(not(debug_assertions))]
+                    {
+                        config.endpoint = default_endpoint();
+                    }
 
-    pub fn use_proxy(mut self, use_proxy: bool) -> Self {
-        self.use_proxy = Some(use_proxy);
-        self
-    }
-
-    pub fn token_storage(mut self, token_storage: TokenStorageConfig) -> Self {
-        self.token_storage = Some(token_storage);
-        self
-    }
-
-    pub fn config_file<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.config_file = Some(path.as_ref().to_path_buf());
-        self
-    }
-
-    pub fn build(self) -> Result<ClientConfig> {
-        let mut config = ClientConfig::from_file_and_env(self.config_file.as_deref())?;
-
-        #[cfg(debug_assertions)]
-        if let Some(base_url) = self.base_url {
-            config.base_url = base_url;
-        }
-
-        if let Some(timeout) = self.timeout {
-            config.timeout = timeout;
-        }
-        if let Some(verbose) = self.verbose {
-            config.verbose = verbose;
-        }
-        if let Some(token_storage) = self.token_storage {
-            config.token_storage = token_storage;
-        }
-        if let Some(use_proxy) = self.use_proxy {
-            config.use_proxy = use_proxy;
-        }
-
-        config.validate()?;
-        Ok(config)
-    }
-}
-
-impl ClientConfig {
-    pub fn new() -> Result<Self> {
-        Self::from_file_and_env::<&str>(None)
-    }
-
-    pub fn builder() -> ClientConfigBuilder {
-        ClientConfigBuilder::new()
-    }
-
-    pub fn from_file_and_env<P: AsRef<Path>>(config_file: Option<P>) -> Result<Self> {
-        let mut builder = Config::builder()
-            .set_default("base_url", "https://api.koalavault.ai/api")?
-            .set_default("timeout", 30)?
-            .set_default("verbose", false)?
-            .set_default("use_proxy", true)?;
-
-        #[cfg(debug_assertions)]
-        {
-            if let Some(config_path) = config_file {
-                if config_path.as_ref().exists() {
-                    builder = builder.add_source(File::from(config_path.as_ref()));
+                    Ok(config)
                 }
-            }
-            builder = builder.add_source(Environment::with_prefix("KOALAVAULT").try_parsing(true));
-        }
+                Err(e) => {
+                    // If deserialization fails due to missing fields, try to merge with defaults
+                    if e.to_string().contains("missing field") {
+                        let partial: serde_json::Value =
+                            serde_json::from_str(&content).unwrap_or_default();
+                        let mut config = Self::default();
 
-        #[cfg(not(debug_assertions))]
-        {
-            if let Some(config_path) = config_file {
-                if config_path.as_ref().exists() {
-                    builder = builder.add_source(File::from(config_path.as_ref()));
+                        // Merge existing fields
+                        #[cfg(debug_assertions)]
+                        {
+                            if let Some(endpoint) = partial.get("endpoint").and_then(|v| v.as_str())
+                            {
+                                config.endpoint = endpoint.to_string();
+                            }
+                        }
+
+                        if let Some(timeout) = partial.get("timeout").and_then(|v| v.as_u64()) {
+                            config.timeout = timeout;
+                        }
+                        if let Some(storage_dir) =
+                            partial.get("storage_dir").and_then(|v| v.as_str())
+                        {
+                            config.storage_dir = PathBuf::from(storage_dir);
+                        }
+                        if let Some(hf_cli_path) =
+                            partial.get("huggingface_cli_path").and_then(|v| v.as_str())
+                        {
+                            config.huggingface_cli_path = Some(PathBuf::from(hf_cli_path));
+                        }
+                        if let Some(use_proxy) = partial.get("use_proxy").and_then(|v| v.as_bool())
+                        {
+                            config.use_proxy = use_proxy;
+                        }
+
+                        Ok(config)
+                    } else {
+                        Err(KoavaError::config(format!(
+                            "Failed to parse configuration: {}",
+                            e
+                        )))
+                    }
                 }
-            }
-            builder = builder.add_source(Environment::with_prefix("KOALAVAULT").try_parsing(true));
-            builder = builder.set_override("base_url", "https://api.koalavault.ai/api")?;
-        }
-
-        let config = builder.build()?;
-        Ok(config.try_deserialize()?)
-    }
-
-    pub fn validate(&self) -> Result<()> {
-        if self.base_url.is_empty() {
-            return Err(ClientError::invalid_input("Base URL cannot be empty").into());
-        }
-        Ok(())
-    }
-
-    pub fn endpoint_url(&self, endpoint: &str) -> String {
-        let endpoint = endpoint.strip_prefix('/').unwrap_or(endpoint);
-        let base_url = if self.base_url.starts_with("http://") || self.base_url.starts_with("https://")
-        {
-            if cfg!(not(debug_assertions)) && self.base_url.starts_with("http://") {
-                self.base_url.replace("http://", "https://")
-            } else {
-                self.base_url.clone()
             }
         } else {
-            format!("https://{}", self.base_url)
-        };
-
-        format!("{}/{}", base_url.trim_end_matches('/'), endpoint)
+            let config = Self::default();
+            config.save(config_file).await?;
+            Ok(config)
+        }
     }
 
-    /// Verify certificate pinning (placeholder - always returns Ok for now)
-    pub async fn verify_certificate_pinning(&self) -> Result<()> {
+    /// Save configuration to file
+    pub async fn save(&self, config_path: &Path) -> Result<()> {
+        if let Some(parent) = config_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+
+        let content = serde_json::to_string_pretty(self)?;
+        fs::write(config_path, content).await?;
         Ok(())
+    }
+
+    /// Get token storage configuration
+    pub fn token_store_config(&self) -> TokenStoreConfig {
+        let token_path = self.storage_dir.join("tokens").join("token.json");
+        TokenStoreConfig {
+            storage_path: Some(token_path),
+            encryption_key: None,
+        }
+    }
+
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<()> {
+        if self.endpoint.is_empty() {
+            return Err(KoavaError::invalid_input("Endpoint URL cannot be empty"));
+        }
+
+        #[cfg(feature = "cert-pinning")]
+        {
+            #[cfg(debug_assertions)]
+            {
+                if self.endpoint.starts_with("https://") {
+                    crate::security::validate_certificate_pinning(&self.server_public_key)?;
+                }
+            }
+
+            #[cfg(not(debug_assertions))]
+            {
+                crate::security::validate_certificate_pinning(&self.server_public_key)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Verify server certificate against pinned public key
+    pub async fn verify_certificate_pinning(&self) -> Result<()> {
+        crate::security::verify_certificate_pinning(&self.endpoint, &self.server_public_key).await
+    }
+
+    /// Get the full URL for an endpoint
+    pub fn endpoint_url(&self, endpoint: &str) -> String {
+        let endpoint = endpoint.strip_prefix('/').unwrap_or(endpoint);
+
+        let base_url =
+            if self.endpoint.starts_with("http://") || self.endpoint.starts_with("https://") {
+                if cfg!(not(debug_assertions)) && self.endpoint.starts_with("http://") {
+                    self.endpoint.replace("http://", "https://")
+                } else {
+                    self.endpoint.clone()
+                }
+            } else {
+                format!("https://{}", self.endpoint)
+            };
+
+        format!(
+            "{}/{}",
+            base_url.trim_end_matches('/'),
+            endpoint.trim_start_matches('/')
+        )
+    }
+}
+
+// ── Config Service for CLI commands ────────────────────────────────────────
+
+use crate::ui::UI;
+use crate::{ConfigArgs, ConfigCommand};
+
+/// Config service for CLI commands
+pub struct ConfigService {
+    config: Config,
+    config_path: Option<PathBuf>,
+    ui: UI,
+}
+
+impl ConfigService {
+    /// Create a new config service
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            config_path: None,
+            ui: UI::new(),
+        }
+    }
+
+    /// Create a new config service with a custom config path
+    pub fn with_config_path(config: Config, path: PathBuf) -> Self {
+        Self {
+            config,
+            config_path: Some(path),
+            ui: UI::new(),
+        }
+    }
+
+    /// Get the path to save/load configuration
+    fn get_config_path(&self) -> PathBuf {
+        self.config_path.clone().unwrap_or_else(default_config_path)
+    }
+
+    /// Handle config command
+    pub async fn handle_config(&mut self, args: ConfigArgs) -> Result<()> {
+        match args.command {
+            ConfigCommand::Show => {
+                let config_info = vec![
+                    ("KoalaVault Endpoint", self.config.endpoint.clone()),
+                    (
+                        "KoalaVault Timeout",
+                        format!("{} seconds", self.config.timeout),
+                    ),
+                    (
+                        "Storage Directory",
+                        self.config.storage_dir.display().to_string(),
+                    ),
+                    (
+                        "Hugging Face CLI",
+                        match &self.config.huggingface_cli_path {
+                            Some(path) => path.display().to_string(),
+                            None => "Auto-detect".to_string(),
+                        },
+                    ),
+                ];
+                self.ui.card("Configuration", config_info);
+                Ok(())
+            }
+            #[cfg(debug_assertions)]
+            ConfigCommand::SetEndpoint { url } => {
+                self.config.endpoint = url.clone();
+                self.config.save(&self.get_config_path()).await?;
+                self.ui
+                    .success(&format!("KoalaVault endpoint set to: {}", url));
+                Ok(())
+            }
+            ConfigCommand::SetTimeout { seconds } => {
+                self.config.timeout = seconds;
+                self.config.save(&self.get_config_path()).await?;
+                self.ui
+                    .success(&format!("KoalaVault timeout set to: {} seconds", seconds));
+                Ok(())
+            }
+            ConfigCommand::Reset => {
+                self.config = Config::default();
+                self.config.save(&self.get_config_path()).await?;
+                self.ui.success("Configuration reset to default values");
+                Ok(())
+            }
+            ConfigCommand::SetHuggingfaceCli { path } => {
+                if path == "auto" {
+                    if let Some(detected_path) =
+                        crate::huggingface::detect_huggingface_cli(&mut self.config).await?
+                    {
+                        self.ui.success(&format!(
+                            "Auto-detected Hugging Face CLI: {}",
+                            detected_path.display()
+                        ));
+                    } else {
+                        self.ui.warning("Hugging Face CLI not found in PATH");
+                    }
+                } else {
+                    let cli_path = std::path::PathBuf::from(&path);
+                    if cli_path.exists() && cli_path.is_file() {
+                        self.config.huggingface_cli_path = Some(cli_path.clone());
+                        self.config.save(&self.get_config_path()).await?;
+                        self.ui.success(&format!(
+                            "Hugging Face CLI path set to: {}",
+                            cli_path.display()
+                        ));
+                    } else {
+                        self.ui.error(&format!("File not found: {}", path));
+                        return Err(KoavaError::config(
+                            "Invalid Hugging Face CLI path".to_string(),
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::utils::test_helpers::create_temp_dir;
+    use proptest::prelude::*;
+    use tokio::fs;
+
+    // Strategy to generate arbitrary Configs
+    prop_compose! {
+        fn arb_config()(
+            endpoint in "https://[a-z]+\\.koalavault\\.ai/api",
+            timeout in 1u64..1000u64,
+            use_proxy in any::<bool>(),
+            storage_dir in "[a-z]+/storage",
+            hf_path in proptest::option::of("[a-z]+/hf"),
+        ) -> Config {
+            Config {
+                endpoint,
+                timeout,
+                storage_dir: PathBuf::from(storage_dir),
+                huggingface_cli_path: hf_path.map(PathBuf::from),
+                use_proxy,
+                server_public_key: DEFAULT_SERVER_PUBLIC_KEY.to_string(), // Keep default for internals
+            }
+        }
+    }
+
+    /// Verifies that the default configuration has the expected values.
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.timeout, 30);
+        assert_eq!(config.endpoint, "https://api.koalavault.ai/api");
+        assert!(config.use_proxy);
+        assert_eq!(config.huggingface_cli_path, None);
+    }
+
+    /// Verifies basic validation logic (e.g. endpoint cannot be empty).
+    #[tokio::test]
+    async fn test_validate_config_basic() {
+        let mut config = Config::default();
+        assert!(config.validate().is_ok());
+        config.endpoint = "".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    /// Verifies that the Show command executes without error.
+    #[tokio::test]
+    async fn test_config_show_scenario() {
+        let config = Config::default();
+        let mut service = ConfigService::new(config);
+
+        service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::Show,
+            })
+            .await
+            .expect("Show command failed to execute");
+    }
+
+    /// Verifies that updating the timeout results in the config being updated and saved.
+    #[tokio::test]
+    async fn test_config_timeout_update_scenario() {
+        let temp_dir = create_temp_dir();
+        let config_path = temp_dir.path().join("config.json");
+        let config = Config::default();
+        config.save(&config_path).await.unwrap();
+
+        let mut service = ConfigService::with_config_path(config, config_path.clone());
+        service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::SetTimeout { seconds: 120 },
+            })
+            .await
+            .expect("SetTimeout command failed");
+
+        assert_eq!(service.config.timeout, 120);
+
+        // Reload to verify persistence
+        let loaded = Config::load_from(&config_path).await.unwrap();
+        assert_eq!(loaded.timeout, 120);
+    }
+
+    /// Verifies that the API endpoint can be updated in debug mode.
+    #[tokio::test]
+    #[cfg(debug_assertions)]
+    async fn test_config_endpoint_update_scenario() {
+        let temp_dir = create_temp_dir();
+        let config_path = temp_dir.path().join("config.json");
+        let config = Config::default();
+        config.save(&config_path).await.unwrap();
+
+        let mut service = ConfigService::with_config_path(config, config_path.clone());
+        let new_url = "https://custom.api.io".to_string();
+
+        service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::SetEndpoint {
+                    url: new_url.clone(),
+                },
+            })
+            .await
+            .expect("SetEndpoint command failed");
+
+        assert_eq!(service.config.endpoint, new_url);
+
+        let loaded = Config::load_from(&config_path).await.unwrap();
+        assert_eq!(loaded.endpoint, new_url);
+    }
+
+    /// Verifies that the Reset command restores default configuration values.
+    #[tokio::test]
+    async fn test_config_reset_scenario() {
+        let temp_dir = create_temp_dir();
+        let config_path = temp_dir.path().join("config.json");
+
+        // Start with non-default config
+        let mut config = Config::default();
+        config.timeout = 999;
+        config.save(&config_path).await.unwrap();
+
+        let mut service = ConfigService::with_config_path(config, config_path.clone());
+        service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::Reset,
+            })
+            .await
+            .expect("Reset command failed");
+
+        assert_eq!(service.config.timeout, 30); // Default
+
+        let loaded = Config::load_from(&config_path).await.unwrap();
+        assert_eq!(loaded.timeout, 30);
+    }
+
+    /// Scenario: Successfully set a valid path for Hugging Face CLI.
+    #[tokio::test]
+    async fn test_config_hf_cli_valid_path_scenario() {
+        let temp_dir = create_temp_dir();
+        let config_path = temp_dir.path().join("config.json");
+        let hf_cli_path = temp_dir.path().join("hf-cli-mock");
+        fs::write(&hf_cli_path, "mock-binary").await.unwrap();
+
+        let config = Config::default();
+        config.save(&config_path).await.unwrap();
+
+        let mut service = ConfigService::with_config_path(config, config_path.clone());
+        service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::SetHuggingfaceCli {
+                    path: hf_cli_path.display().to_string(),
+                },
+            })
+            .await
+            .expect("SetHuggingfaceCli failed with valid path");
+
+        assert_eq!(
+            service.config.huggingface_cli_path,
+            Some(hf_cli_path.clone())
+        );
+
+        // Reload to verify persistence
+        let loaded = Config::load_from(&config_path).await.unwrap();
+        assert_eq!(loaded.huggingface_cli_path, Some(hf_cli_path));
+    }
+
+    /// Scenario: Attempt to set an invalid (non-existent) path for Hugging Face CLI.
+    #[tokio::test]
+    async fn test_config_hf_cli_invalid_path_scenario() {
+        let config = Config::default();
+        let mut service = ConfigService::new(config);
+
+        let result = service
+            .handle_config(ConfigArgs {
+                command: ConfigCommand::SetHuggingfaceCli {
+                    path: "/non/existent/path/to/cli".to_string(),
+                },
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid Hugging Face CLI path"));
+    }
+
+    proptest! {
+        /// Verifies that any valid generated configuration can be saved and reloaded correctly (round-trip).
+        #[test]
+        fn test_save_and_load_roundtrip(config in arb_config()) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let temp_dir = create_temp_dir();
+                let config_path = temp_dir.path().join("config.json");
+
+                // Save
+                config.save(&config_path).await.unwrap();
+                prop_assert!(config_path.exists());
+
+                // Load
+                let loaded_config = Config::load_from(&config_path).await.unwrap();
+
+                // Assert equality (ignoring internal fields if any, but Config is simple)
+                prop_assert_eq!(loaded_config.endpoint, config.endpoint);
+                prop_assert_eq!(loaded_config.timeout, config.timeout);
+                prop_assert_eq!(loaded_config.storage_dir, config.storage_dir);
+                prop_assert_eq!(loaded_config.huggingface_cli_path, config.huggingface_cli_path);
+                prop_assert_eq!(loaded_config.use_proxy, config.use_proxy);
+                Ok(())
+            }).unwrap();
+        }
+
+        /// Verifies that a partial configuration file (only timeout/endpoint) is correctly merged with default values.
+        #[test]
+        fn test_partial_config_merge_pbt(
+            timeout in 1u64..1000u64,
+            endpoint in "https://[a-z]+\\.custom\\.com"
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let temp_dir = create_temp_dir();
+                let config_path = temp_dir.path().join("partial_config.json");
+
+                // Create partial JSON with just timeout and endpoint
+                let partial_json = serde_json::json!({
+                    "timeout": timeout,
+                    "endpoint": endpoint
+                });
+                fs::write(&config_path, partial_json.to_string()).await.unwrap();
+
+                // Load - should merge with defaults
+                let config = Config::load_from(&config_path).await.unwrap();
+
+                // specific fields updated
+                prop_assert_eq!(config.timeout, timeout);
+                prop_assert_eq!(config.endpoint, endpoint);
+
+                // other fields should be defaults
+                prop_assert_eq!(config.use_proxy, true); // default
+                Ok(())
+            }).unwrap();
+        }
+
+        /// Verifies that endpoint_url correctly joins base URL and endpoint with proper slash handling.
+        #[test]
+        fn test_endpoint_url_logic(
+            base in "https://[a-z0-9.]+",
+            endpoint in "[a-z0-9/]+"
+        ) {
+            let mut config = Config::default();
+
+            // Case 1: Base with trailing slash, endpoint with leading slash
+            config.endpoint = format!("{}/", base);
+            let result = config.endpoint_url(&format!("/{}", endpoint));
+            let expected_endpoint = endpoint.trim_start_matches('/');
+            prop_assert_eq!(result, format!("{}/{}", base, expected_endpoint));
+
+            // Case 2: Base without trailing slash, endpoint without leading slash
+            config.endpoint = base.clone();
+            let result = config.endpoint_url(&endpoint);
+            prop_assert_eq!(result, format!("{}/{}", base, expected_endpoint));
+        }
+
+        /// Verifies that endpoint_url handles missing schemes by prepending https://.
+        #[test]
+        fn test_endpoint_url_scheme_handling(
+            host in "[a-z0-9.]+",
+            endpoint in "[a-z0-9]+"
+        ) {
+            let mut config = Config::default();
+            config.endpoint = host.clone();
+            let result = config.endpoint_url(&endpoint);
+            prop_assert!(result.starts_with("https://"));
+            prop_assert_eq!(result, format!("https://{}/{}", host, endpoint));
+        }
+    }
+
+    #[test]
+    fn test_endpoint_url_specific_cases() {
+        let mut config = Config::default();
+
+        // Test base URL with http (should stay http in debug mode)
+        #[cfg(debug_assertions)]
+        {
+            config.endpoint = "http://api.test.com".to_string();
+            assert_eq!(
+                config.endpoint_url("v1/test"),
+                "http://api.test.com/v1/test"
+            );
+        }
+
+        // Test base URL already having https
+        config.endpoint = "https://api.test.com/".to_string();
+        assert_eq!(
+            config.endpoint_url("/v1/test"),
+            "https://api.test.com/v1/test"
+        );
+
+        // Test with empty endpoint (though validate() prevents this in practice, the method itself should handle it)
+        config.endpoint = "api.test.com".to_string();
+        assert_eq!(config.endpoint_url(""), "https://api.test.com/");
     }
 }
