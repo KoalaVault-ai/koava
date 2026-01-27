@@ -62,12 +62,11 @@ async fn verify_certificate_pinning_impl(endpoint: &str, server_public_key: &str
     let stream = tokio::net::TcpStream::connect(&format!("{}:{}", hostname, port))
         .await
         .map_err(|_| {
-            KoavaError::invalid_input(&format!("Unable to connect to server at {}", hostname))
+            KoavaError::invalid_input(format!("Unable to connect to server at {}", hostname))
         })?;
 
-    let hostname_for_error = hostname.clone();
     let dns_name = rustls::pki_types::ServerName::DnsName(
-        rustls::pki_types::DnsName::try_from(hostname)
+        rustls::pki_types::DnsName::try_from(hostname.clone())
             .map_err(|_| KoavaError::invalid_input("Invalid DNS name for SNI"))?,
     );
 
@@ -76,8 +75,8 @@ async fn verify_certificate_pinning_impl(endpoint: &str, server_public_key: &str
         Err(e) => {
             #[cfg(debug_assertions)]
             {
-                eprintln!("[koalavault] Certificate/public key verification failed for {}: {:?}, but continuing in debug mode", hostname_for_error, e);
-                return Ok(());
+                eprintln!("[koalavault] Certificate/public key verification failed for {}: {:?}, but continuing in debug mode", hostname, e);
+                Ok(())
             }
 
             #[cfg(not(debug_assertions))]
@@ -137,7 +136,7 @@ impl PinnedKeyVerifier {
 
         let cert_bytes = cert.as_ref();
         let (_, parsed_cert) = X509Certificate::from_der(cert_bytes).map_err(|e| {
-            KoavaError::invalid_input(&format!("Failed to parse certificate: {}", e))
+            KoavaError::invalid_input(format!("Failed to parse certificate: {}", e))
         })?;
 
         let spki = parsed_cert.tbs_certificate.subject_pki;
@@ -198,13 +197,13 @@ impl ServerCertVerifier for PinnedKeyVerifier {
                 #[cfg(debug_assertions)]
                 {
                     eprintln!("[koalavault] Public key pinning check failed, but continuing in debug mode");
-                    return self.standard_verifier.verify_server_cert(
+                    self.standard_verifier.verify_server_cert(
                         end_entity,
                         intermediates,
                         server_name,
                         ocsp_response,
                         now,
-                    );
+                    )
                 }
 
                 #[cfg(not(debug_assertions))]

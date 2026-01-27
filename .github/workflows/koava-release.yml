@@ -58,10 +58,10 @@ jobs:
         REF_TYPE="${{ github.ref_type }}"
         
         if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-          # Manual trigger: auto-calculate next RC version (force TestPyPI)
+          # Manual trigger: build only, no publishing (only tag pushes can publish)
           DRYRUN="${{ github.event.inputs.dryrun }}"
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
-          IS_RELEASE="true"  # Manual trigger can publish
+          IS_RELEASE="false"  # Manual trigger cannot publish, only tag pushes can
           
           # Get latest tag
           git fetch --tags
@@ -95,7 +95,7 @@ jobs:
           fi
           
           VERSION="${BASE_VERSION}-rc.${RC_NUM}"
-          TESTPYPI="true"  # Manual trigger always publishes to TestPyPI
+          TESTPYPI="false"  # Manual trigger does not publish
           
           # Enforce: debug builds must be RC
           if [ "$BUILD_TYPE" = "debug" ]; then
@@ -105,6 +105,7 @@ jobs:
             fi
           fi
           
+          echo "Manual trigger: Build only mode (no publishing)"
           echo "Auto-calculated RC version: $VERSION"
         elif [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
           # Tag push: extract version from tag name (for publishing)
@@ -244,12 +245,27 @@ jobs:
       with:
         targets: aarch64-unknown-linux-gnu
     
+    - name: Verify Rust target installation
+      run: |
+        rustup target list --installed | grep aarch64-unknown-linux-gnu || rustup target add aarch64-unknown-linux-gnu
+        rustc --version --verbose
+        rustc --print target-list | grep aarch64-unknown-linux-gnu
+    
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libssl-dev pkg-config
         # Install cross-compilation toolchain for ARM64
-        sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross
+    
+    - name: Configure Cargo for cross-compilation
+      run: |
+        # Set environment variables for cross-compilation (target-specific)
+        # These only affect aarch64-unknown-linux-gnu target, not other platforms
+        echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+        echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+        echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+        echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
     
     - name: Install maturin
       run: pip install maturin
@@ -422,7 +438,8 @@ jobs:
   publish:
     needs: [prepare, build-linux-x86_64, build-linux-arm64, build-macos-x86_64, build-macos-arm64, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-22.04
-    if: needs.prepare.outputs.is_release == 'true'
+    # Only publish when pushing a tag (not on manual workflow_dispatch or regular pushes)
+    if: needs.prepare.outputs.is_release == 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     permissions:
       id-token: write  # Required for OIDC
       contents: read   # Required for checkout
