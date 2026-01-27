@@ -48,4 +48,3 @@ pub struct RevokeRefreshTokenRequest {
     #[validate(length(min = 10, max = 255))]
     pub refresh_token: String,
 }
-

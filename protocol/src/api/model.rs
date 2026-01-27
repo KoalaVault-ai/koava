@@ -100,4 +100,3 @@ pub struct UploadModelFilesRequest {
 pub struct UploadModelFilesResponse {
     pub total_uploaded: usize,
 }
-

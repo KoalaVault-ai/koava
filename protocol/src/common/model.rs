@@ -40,7 +40,6 @@ pub struct ModelDetail {
     pub updated_at: DateTime<Utc>,
 }
 
-
 // ============================================================================
 // Model File Structures
 // ============================================================================
@@ -66,5 +65,3 @@ pub struct ModelFileDetail {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-
-
