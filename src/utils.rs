@@ -48,9 +48,7 @@ pub struct CryptoUtils;
 impl CryptoUtils {
     /// Calculate SHA256 hash of a string (used for header hashing)
     pub fn calculate_sha256_hash(data: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        hex::encode(hasher.finalize())
+        Self::calculate_sha256_hash_bytes(data.as_bytes())
     }
 
     /// Calculate SHA256 hash of bytes
@@ -81,15 +79,13 @@ impl CryptoUtils {
             return Err(KoavaError::crypto("Header too large"));
         }
 
-        // Read header JSON
-        let mut header_json_bytes = vec![0u8; header_len];
-        file.read_exact(&mut header_json_bytes)
-            .map_err(|e| KoavaError::crypto(format!("Failed to read header JSON: {}", e)))?;
+        // Combine header length + header JSON in one allocation
+        let mut header_data = vec![0u8; 8 + header_len];
+        header_data[0..8].copy_from_slice(&header_len_bytes);
 
-        // Combine header length + header JSON
-        let mut header_data = Vec::with_capacity(8 + header_len);
-        header_data.extend_from_slice(&header_len_bytes);
-        header_data.extend_from_slice(&header_json_bytes);
+        // Read header JSON directly into the buffer
+        file.read_exact(&mut header_data[8..])
+            .map_err(|e| KoavaError::crypto(format!("Failed to read header JSON: {}", e)))?;
 
         // Encode as base64
         let header_b64 = general_purpose::STANDARD.encode(&header_data);
