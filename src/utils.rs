@@ -42,6 +42,9 @@ pub struct FileInfo {
     pub updated_at: Option<String>,
 }
 
+/// Maximum allowed size for Safetensors header (1MB)
+pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+
 /// Crypto utilities for file operations
 pub struct CryptoUtils;
 
@@ -76,7 +79,7 @@ impl CryptoUtils {
 
         let header_len = u64::from_le_bytes(header_len_bytes) as usize;
 
-        if header_len > 1024 * 1024 {
+        if header_len > MAX_HEADER_SIZE {
             // 1MB limit for safety
             return Err(KoavaError::crypto("Header too large"));
         }
@@ -145,7 +148,7 @@ impl CryptoUtils {
 
         let header_len = u64::from_le_bytes(header_len_bytes) as usize;
 
-        if header_len > 1024 * 1024 {
+        if header_len > MAX_HEADER_SIZE {
             // 1MB limit for safety
             return Err(KoavaError::validation(
                 "Header too large (exceeds 1MB limit)",
