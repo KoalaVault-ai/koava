@@ -9,6 +9,9 @@ use std::path::Path;
 
 use crate::error::{KoavaError, Result};
 
+/// Maximum allowed size for a safetensors file header (1MB)
+pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHeader {
@@ -48,9 +51,7 @@ pub struct CryptoUtils;
 impl CryptoUtils {
     /// Calculate SHA256 hash of a string (used for header hashing)
     pub fn calculate_sha256_hash(data: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        hex::encode(hasher.finalize())
+        Self::calculate_sha256_hash_bytes(data.as_bytes())
     }
 
     /// Calculate SHA256 hash of bytes
@@ -76,7 +77,7 @@ impl CryptoUtils {
 
         let header_len = u64::from_le_bytes(header_len_bytes) as usize;
 
-        if header_len > 1024 * 1024 {
+        if header_len > MAX_HEADER_SIZE {
             // 1MB limit for safety
             return Err(KoavaError::crypto("Header too large"));
         }
@@ -145,7 +146,7 @@ impl CryptoUtils {
 
         let header_len = u64::from_le_bytes(header_len_bytes) as usize;
 
-        if header_len > 1024 * 1024 {
+        if header_len > MAX_HEADER_SIZE {
             // 1MB limit for safety
             return Err(KoavaError::validation(
                 "Header too large (exceeds 1MB limit)",
