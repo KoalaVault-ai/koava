@@ -239,8 +239,8 @@ mod tests {
 
         #[tokio::test]
         async fn test_extract_safetensors_header_nonexistent_file() {
-            let result = CryptoUtils::extract_safetensors_header("/nonexistent/file.safetensors")
-                .await;
+            let result =
+                CryptoUtils::extract_safetensors_header("/nonexistent/file.safetensors").await;
             assert!(result.is_err());
         }
 
