@@ -215,7 +215,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
                 continue;
             }
 
-            match CryptoUtils::extract_safetensors_header(&file.path).await {
+            match CryptoUtils::extract_safetensors_header(&file.path) {
                 Ok(header_data) => {
                     let file_info = FileInfo {
                         id: None,

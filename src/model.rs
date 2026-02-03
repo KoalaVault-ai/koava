@@ -241,24 +241,25 @@ pub async fn encrypt_safetensors_file(
 /// Extract non-reserved metadata from safetensors file header
 /// This parses the JSON header and filters out reserved fields (starting with "__")
 fn extract_metadata_from_header(file_content: &[u8]) -> Result<Option<HashMap<String, String>>> {
-    // Read header length
-    if file_content.len() < CryptoUtils::HEADER_LENGTH_SIZE {
+    const N_LEN: usize = 8;
+
+    // Read header length (first 8 bytes)
+    if file_content.len() < N_LEN {
         return Ok(None);
     }
 
     let header_len = u64::from_le_bytes(
-        file_content[..CryptoUtils::HEADER_LENGTH_SIZE]
+        file_content[..N_LEN]
             .try_into()
             .map_err(|_| KoavaError::io("Header parsing", "Invalid header length"))?,
     ) as usize;
 
-    if file_content.len() < CryptoUtils::HEADER_LENGTH_SIZE + header_len {
+    if file_content.len() < N_LEN + header_len {
         return Ok(None);
     }
 
     // Parse JSON header
-    let header_bytes = &file_content
-        [CryptoUtils::HEADER_LENGTH_SIZE..CryptoUtils::HEADER_LENGTH_SIZE + header_len];
+    let header_bytes = &file_content[N_LEN..N_LEN + header_len];
     let header_str = std::str::from_utf8(header_bytes)
         .map_err(|e| KoavaError::io("Header parsing", format!("Invalid UTF-8: {}", e)))?;
 
@@ -266,7 +267,7 @@ fn extract_metadata_from_header(file_content: &[u8]) -> Result<Option<HashMap<St
         .map_err(|e| KoavaError::serialization(format!("Invalid JSON in header: {}", e)))?;
 
     // Extract __metadata__ field if present
-    if let Some(metadata_obj) = header_json.get(CryptoUtils::METADATA_KEY) {
+    if let Some(metadata_obj) = header_json.get("__metadata__") {
         if let Some(metadata_map) = metadata_obj.as_object() {
             // Filter out reserved fields (starting with "__")
             let mut filtered_metadata = HashMap::new();
