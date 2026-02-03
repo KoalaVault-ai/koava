@@ -1,6 +1,6 @@
 [package]
 name = "koava"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "KoalaVault model converter tool for producers"
 authors = ["KoalaVault Team"]
