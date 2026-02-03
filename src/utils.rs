@@ -164,6 +164,24 @@ impl CryptoUtils {
     }
 }
 
+/// Format bytes into human readable string
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit_index])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,6 +321,15 @@ mod tests {
             // Different data should produce different hashes
             assert_ne!(hashes[0].header_hash, hashes[1].header_hash);
         }
+
+        #[test]
+        fn test_format_bytes() {
+            assert_eq!(format_bytes(100), "100 B");
+            assert_eq!(format_bytes(1024), "1.0 KB");
+            assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+            assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+            assert_eq!(format_bytes(1536), "1.5 KB");
+        }
     }
 
     mod properties {
@@ -340,6 +367,25 @@ mod tests {
                     let hash1 = CryptoUtils::calculate_sha256_hash(&s1);
                     let hash2 = CryptoUtils::calculate_sha256_hash(&s2);
                     prop_assert_ne!(hash1, hash2);
+                }
+            }
+
+            #[test]
+            fn test_format_bytes_no_panic(bytes in any::<u64>()) {
+                // Should not panic for any input
+                let formatted = format_bytes(bytes);
+                prop_assert!(!formatted.is_empty());
+            }
+
+            #[test]
+            fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
+                // Larger bytes should produce result containing appropriate unit
+                // (This is a bit loose, but checks basic logic)
+                let formatted = format_bytes(bytes);
+                if bytes < 1024 {
+                    prop_assert!(formatted.contains("B"));
+                } else if bytes < 1024 * 1024 {
+                    prop_assert!(formatted.contains("KB"));
                 }
             }
         }

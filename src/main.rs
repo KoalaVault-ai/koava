@@ -33,9 +33,9 @@ pub use key::{KeyService, KeyVault};
 pub use koalavault_protocol::api::{
     GetModelFileResponse, ModelFilesListResponse, UploadModelFilesRequest, UploadModelFilesResponse,
 };
-pub use model::{encrypt_safetensors_file, format_bytes, ModelDirectory, ModelFile};
+pub use model::{encrypt_safetensors_file, ModelDirectory, ModelFile};
 pub use store::{StoredToken, TokenStore, TokenStoreConfig};
-pub use utils::{CryptoUtils, FileHash, FileHeader, FileInfo};
+pub use utils::{format_bytes, CryptoUtils, FileHash, FileHeader, FileInfo};
 
 use cli::CliHandler;
 
