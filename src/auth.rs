@@ -210,13 +210,7 @@ impl AuthService {
 
         if let Some(username) = &username_opt {
             // Normalize endpoint to include /api
-            let normalized_endpoint = if self.config.endpoint.ends_with("/api") {
-                self.config.endpoint.clone()
-            } else if self.config.endpoint.ends_with("/") {
-                format!("{}api", self.config.endpoint)
-            } else {
-                format!("{}/api", self.config.endpoint)
-            };
+            let normalized_endpoint = self.config.get_api_endpoint();
 
             // Build HTTP client (no proxy for localhost)
             let mut builder = reqwest::Client::builder()
@@ -281,13 +275,7 @@ impl AuthService {
             .map_err(|e| KoavaError::config(e.to_string()))?;
 
         // Normalize endpoint to include /api
-        let normalized_endpoint = if self.config.endpoint.ends_with("/api") {
-            self.config.endpoint.clone()
-        } else if self.config.endpoint.ends_with("/") {
-            format!("{}api", self.config.endpoint)
-        } else {
-            format!("{}/api", self.config.endpoint)
-        };
+        let normalized_endpoint = self.config.get_api_endpoint();
 
         // Disable proxy for localhost to avoid corporate/system proxy causing 502
         let mut builder = reqwest::Client::builder()

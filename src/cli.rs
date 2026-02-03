@@ -40,6 +40,16 @@ impl CliHandler {
         }
     }
 
+    /// Get the authenticated client and config
+    async fn get_authenticated_client(
+        &self,
+    ) -> Result<(Config, std::sync::Arc<crate::HttpClient>)> {
+        let config = self.load_config().await?;
+        let auth_service = crate::auth::AuthService::new(config.clone());
+        let client = auth_service.get_authenticated_client().await?;
+        Ok((config, client))
+    }
+
     /// Execute a CLI command
     pub async fn execute(&mut self, command: Commands) -> Result<()> {
         match command {
@@ -59,9 +69,7 @@ impl CliHandler {
 
     /// Handle encrypt command
     async fn handle_encrypt(&mut self, args: EncryptArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config.clone());
-        let client = auth_service.get_authenticated_client().await?;
+        let (config, client) = self.get_authenticated_client().await?;
         let encrypt_service = EncryptService::new(config);
         encrypt_service.encrypt(&*client, args).await
     }
@@ -75,18 +83,14 @@ impl CliHandler {
 
     /// Handle upload command - upload encrypted model to server
     async fn handle_upload(&mut self, args: UploadArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config);
-        let client = auth_service.get_authenticated_client().await?;
+        let (_config, client) = self.get_authenticated_client().await?;
         let service = crate::model::ModelService::new();
         service.upload(client, args).await
     }
 
     /// Handle remove command
     async fn handle_remove(&mut self, args: RemoveArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config);
-        let client = auth_service.get_authenticated_client().await?;
+        let (_config, client) = self.get_authenticated_client().await?;
         let service = crate::model::ModelService::new();
         service.remove(client, args).await
     }
@@ -147,27 +151,21 @@ impl CliHandler {
 
     /// Handle list command - list files for a model on server
     async fn handle_list(&mut self, args: ListArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config);
-        let client = auth_service.get_authenticated_client().await?;
+        let (_config, client) = self.get_authenticated_client().await?;
         let service = crate::model::ModelService::new();
         service.list(client, args).await
     }
 
     /// Handle create command
     async fn handle_create(&mut self, args: CreateArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config);
-        let client = auth_service.get_authenticated_client().await?;
+        let (_config, client) = self.get_authenticated_client().await?;
         let service = crate::model::ModelService::new();
         service.create(client, args).await
     }
 
     /// Handle push command: create -> encrypt -> upload -> hf create repo -> upload to hf -> update model
     async fn handle_push(&mut self, args: crate::PushArgs) -> Result<()> {
-        let config = self.load_config().await?;
-        let auth_service = crate::auth::AuthService::new(config.clone());
-        let client = auth_service.get_authenticated_client().await?;
+        let (config, client) = self.get_authenticated_client().await?;
         let mut service = crate::push::PushService::new(config);
         service.push(client, args).await
     }

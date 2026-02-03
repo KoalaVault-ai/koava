@@ -203,6 +203,18 @@ impl Config {
         crate::security::verify_certificate_pinning(&self.endpoint, &self.server_public_key).await
     }
 
+    /// Get the API base endpoint (ensuring /api suffix and proper scheme)
+    pub fn get_api_endpoint(&self) -> String {
+        let base = self.endpoint_url("");
+        let base = base.trim_end_matches('/');
+
+        if base.ends_with("/api") {
+            base.to_string()
+        } else {
+            format!("{}/api", base)
+        }
+    }
+
     /// Get the full URL for an endpoint
     pub fn endpoint_url(&self, endpoint: &str) -> String {
         let endpoint = endpoint.strip_prefix('/').unwrap_or(endpoint);
@@ -644,5 +656,30 @@ mod tests {
         // Test with empty endpoint (though validate() prevents this in practice, the method itself should handle it)
         config.endpoint = "api.test.com".to_string();
         assert_eq!(config.endpoint_url(""), "https://api.test.com/");
+    }
+
+    #[test]
+    fn test_get_api_endpoint() {
+        let mut config = Config::default();
+
+        // Case 1: No /api suffix
+        config.endpoint = "https://example.com".to_string();
+        assert_eq!(config.get_api_endpoint(), "https://example.com/api");
+
+        // Case 2: With /api suffix
+        config.endpoint = "https://example.com/api".to_string();
+        assert_eq!(config.get_api_endpoint(), "https://example.com/api");
+
+        // Case 3: With trailing slash
+        config.endpoint = "https://example.com/".to_string();
+        assert_eq!(config.get_api_endpoint(), "https://example.com/api");
+
+        // Case 4: With /api/ suffix
+        config.endpoint = "https://example.com/api/".to_string();
+        assert_eq!(config.get_api_endpoint(), "https://example.com/api");
+
+        // Case 5: Missing scheme (adds https)
+        config.endpoint = "example.com".to_string();
+        assert_eq!(config.get_api_endpoint(), "https://example.com/api");
     }
 }
