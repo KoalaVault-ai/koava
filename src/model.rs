@@ -4,7 +4,7 @@ use walkdir::WalkDir;
 
 use crate::error::{KoavaError, Result};
 use crate::policy::LoadPolicy;
-use crate::utils::CryptoUtils;
+use crate::utils::{format_bytes, CryptoUtils};
 use cryptotensors::KeyMaterial;
 use cryptotensors::SerializeCryptoConfig;
 use cryptotensors::{serialize_to_file, AccessPolicy, SafeTensors};
@@ -286,24 +286,6 @@ fn extract_metadata_from_header(file_content: &[u8]) -> Result<Option<HashMap<St
     }
 
     Ok(None)
-}
-
-/// Format bytes into human readable string
-pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit_index = 0;
-
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_index += 1;
-    }
-
-    if unit_index == 0 {
-        format!("{} {}", bytes, UNITS[unit_index])
-    } else {
-        format!("{:.1} {}", size, UNITS[unit_index])
-    }
 }
 
 // ── Model Service for CLI commands ─────────────────────────────────────────
@@ -656,15 +638,6 @@ mod tests {
     use super::*;
     use crate::tests::utils::test_helpers::{create_mock_safetensors_file, create_temp_dir};
     use std::fs::File;
-
-    #[test]
-    fn test_format_bytes() {
-        assert_eq!(format_bytes(100), "100 B");
-        assert_eq!(format_bytes(1024), "1.0 KB");
-        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
-        assert_eq!(format_bytes(1536), "1.5 KB");
-    }
 
     #[test]
     fn test_extract_metadata_from_header_too_short() {

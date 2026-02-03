@@ -14,6 +14,8 @@ pub struct UploadService<C: ApiClient + ?Sized> {
 }
 
 impl<C: ApiClient + ?Sized> UploadService<C> {
+    const UPLOAD_BATCH_SIZE: usize = 5;
+
     /// Create a new upload service
     pub fn new(client: Arc<C>, progress_enabled: bool) -> Self {
         Self {
@@ -76,7 +78,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
         };
 
         // Upload files in batches to avoid overwhelming the server
-        let batch_size = 5;
+        let batch_size = Self::UPLOAD_BATCH_SIZE;
         let mut uploaded_count = 0;
 
         for (i, chunk) in file_infos.chunks(batch_size).enumerate() {
