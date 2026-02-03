@@ -81,7 +81,7 @@ libc = "0.2"
 koalavault-protocol = { path = "protocol" }
 
 # Cryptographic operations for attestation
-rsa = "0.9"
+rsa = "0.9.10"
 rand = "0.8"
 
 # TLS and certificate pinning (used when cert-pinning feature is enabled)
