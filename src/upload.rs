@@ -60,9 +60,6 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
             ));
         }
 
-        // Upload file headers using SDK
-        let file_service = ModelFileService::new(&*self.client);
-
         self.ui.info(&format!(
             "Uploading {} file headers to server...",
             file_infos.len()
@@ -85,66 +82,20 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
             let batch_num = i + 1;
             let total_batches = file_infos.len().div_ceil(batch_size);
 
-            if let Some(ref pb) = progress_bar {
-                pb.set_message(format!("Uploading batch {}/{}", batch_num, total_batches));
-            }
-
-            match file_service
-                .upload_model_files(&username, model_name, chunk.to_vec())
+            match self
+                .process_batch(
+                    batch_num,
+                    total_batches,
+                    chunk,
+                    &username,
+                    model_name,
+                    force,
+                    &progress_bar,
+                )
                 .await
             {
-                Ok(upload_response) => {
-                    uploaded_count += upload_response.total_uploaded;
-                    // Batch upload successful - no debug output needed
-
-                    if let Some(ref pb) = progress_bar {
-                        pb.inc(chunk.len() as u64);
-                    }
-                }
-                Err(e) => {
-                    // Check if this is a 409 conflict error (file already exists)
-                    let is_conflict_error =
-                        e.to_string().contains("409") || e.to_string().contains("already exists");
-
-                    if is_conflict_error && force {
-                        // In force mode, treat 409 conflicts as warnings, not errors
-                        self.ui.warning(&format!(
-                            "Batch {}/{} skipped (files already exist): {}",
-                            batch_num, total_batches, e
-                        ));
-                        self.ui
-                            .info("Continuing with remaining batches due to force mode");
-
-                        if let Some(ref pb) = progress_bar {
-                            pb.inc(chunk.len() as u64);
-                        }
-                    } else if is_conflict_error && !force {
-                        // 409 conflict in non-force mode - provide helpful guidance
-                        self.ui.error(&format!("Upload failed: {}", e));
-                        self.ui
-                            .info("💡 The model files already exist on the server.");
-                        self.ui
-                            .info("   To overwrite existing files, use the --force flag:");
-                        self.ui
-                            .info(&format!("   koava push {} --force", model_name));
-                        return Err(KoavaError::upload(
-                            "Files already exist on server. Use --force to overwrite.".to_string(),
-                        ));
-                    } else {
-                        // For other errors, treat as error
-                        self.ui.error(&format!(
-                            "Failed to upload batch {}/{}: {}",
-                            batch_num, total_batches, e
-                        ));
-
-                        if !force {
-                            return Err(KoavaError::upload(e.to_string()));
-                        }
-
-                        self.ui
-                            .warning("Continuing with remaining batches due to force mode");
-                    }
-                }
+                Ok(count) => uploaded_count += count,
+                Err(e) => return Err(e),
             }
 
             // Small delay between batches to be respectful to the server
@@ -240,6 +191,83 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
         }
 
         Ok(file_infos)
+    }
+
+    /// Process a single batch of file uploads
+    async fn process_batch(
+        &self,
+        batch_num: usize,
+        total_batches: usize,
+        chunk: &[FileInfo],
+        username: &str,
+        model_name: &str,
+        force: bool,
+        progress_bar: &Option<indicatif::ProgressBar>,
+    ) -> Result<usize> {
+        if let Some(ref pb) = progress_bar {
+            pb.set_message(format!("Uploading batch {}/{}", batch_num, total_batches));
+        }
+
+        // Upload file headers using SDK
+        let file_service = ModelFileService::new(&*self.client);
+
+        match file_service
+            .upload_model_files(username, model_name, chunk.to_vec())
+            .await
+        {
+            Ok(upload_response) => {
+                if let Some(ref pb) = progress_bar {
+                    pb.inc(chunk.len() as u64);
+                }
+                Ok(upload_response.total_uploaded)
+            }
+            Err(e) => {
+                // Check if this is a 409 conflict error (file already exists)
+                let is_conflict_error =
+                    e.to_string().contains("409") || e.to_string().contains("already exists");
+
+                if is_conflict_error && force {
+                    // In force mode, treat 409 conflicts as warnings, not errors
+                    self.ui.warning(&format!(
+                        "Batch {}/{} skipped (files already exist): {}",
+                        batch_num, total_batches, e
+                    ));
+                    self.ui
+                        .info("Continuing with remaining batches due to force mode");
+
+                    if let Some(ref pb) = progress_bar {
+                        pb.inc(chunk.len() as u64);
+                    }
+                    Ok(0)
+                } else if is_conflict_error && !force {
+                    // 409 conflict in non-force mode - provide helpful guidance
+                    self.ui.error(&format!("Upload failed: {}", e));
+                    self.ui
+                        .info("💡 The model files already exist on the server.");
+                    self.ui
+                        .info("   To overwrite existing files, use the --force flag:");
+                    self.ui
+                        .info(&format!("   koava push {} --force", model_name));
+                    Err(KoavaError::upload(
+                        "Files already exist on server. Use --force to overwrite.".to_string(),
+                    ))
+                } else {
+                    // For other errors, treat as error
+                    self.ui.error(&format!(
+                        "Failed to upload batch {}/{}: {}",
+                        batch_num, total_batches, e
+                    ));
+
+                    if !force {
+                        return Err(KoavaError::upload(e.to_string()));
+                    }
+
+                    self.ui
+                        .warning("Continuing with remaining batches due to force mode");
+                    Ok(0)
+                }
+            }
+        }
     }
 }
 
