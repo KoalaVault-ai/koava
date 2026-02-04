@@ -69,9 +69,35 @@ impl CliHandler {
 
     /// Handle encrypt command
     async fn handle_encrypt(&mut self, args: EncryptArgs) -> Result<()> {
-        let (config, client) = self.get_authenticated_client().await?;
-        let encrypt_service = EncryptService::new(config);
-        encrypt_service.encrypt(&*client, args).await
+        // If manual keys are provided, we don't strictly need an authenticated client.
+
+        let config = self.load_config().await?;
+
+        // Check if manual keys are present
+        let has_manual_keys = args.master_key.is_some() && args.sign_key.is_some();
+
+        if has_manual_keys {
+            // Manual keys mode: Try to get authenticated client, but fallback to unauthenticated if fails
+            let auth_service = crate::auth::AuthService::new(config.clone());
+            let client = match auth_service.get_authenticated_client().await {
+                Ok(c) => c,
+                Err(_) => {
+                    // Not logged in, but that's okay for manual keys.
+                    // Create a basic client (it won't be used for key fetching anyway)
+                    self.ui.success("Running in offline mode with manual keys");
+                    let http_client = crate::HttpClient::new(config.clone())?;
+                    std::sync::Arc::new(http_client)
+                }
+            };
+
+            let encrypt_service = EncryptService::new(config);
+            encrypt_service.encrypt(&*client, args).await
+        } else {
+            // Standard mode: Require authentication
+            let (_config, client) = self.get_authenticated_client().await?;
+            let encrypt_service = EncryptService::new(config);
+            encrypt_service.encrypt(&*client, args).await
+        }
     }
 
     /// Handle restore command

@@ -5,7 +5,7 @@ use crate::ApiResponse;
 use koalavault_protocol::api::{GetModelMasterKeyResponse, GetUserSignKeyResponse};
 
 /// Expected jku prefix for KoalaVault keys
-const EXPECTED_JKU_PREFIX: &str = "koalavault://";
+pub const EXPECTED_JKU_PREFIX: &str = "koalavault://";
 
 /// Key vault for caching keys (stores raw JSON data)
 #[derive(Debug, Clone)]
@@ -168,6 +168,43 @@ impl<'a, C: ApiClient + ?Sized> KeyService<'a, C> {
         let enc_key = self.request_master_key(model_name).await?;
         Ok((enc_key, sign_key))
     }
+}
+
+/// Load a key (JWK) from a file
+///
+/// Reads a JSON file and parses it as a JWK (serde_json::Value).
+pub async fn load_key_from_file(path: &std::path::Path) -> Result<serde_json::Value> {
+    if !path.exists() {
+        return Err(KoavaError::validation(format!(
+            "Key file not found: {}",
+            path.display()
+        )));
+    }
+
+    let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        KoavaError::io(
+            "Read key file",
+            format!("Failed to read key file {}: {}", path.display(), e),
+        )
+    })?;
+
+    let key: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        KoavaError::validation(format!(
+            "Invalid JSON in key file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    // Basic JWK validation
+    if key.get("kty").is_none() {
+        return Err(KoavaError::validation(format!(
+            "Invalid JWK: missing 'kty' field in {}",
+            path.display()
+        )));
+    }
+
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -338,5 +375,68 @@ mod tests {
         let (enc, sign) = result.unwrap();
         assert_eq!(enc, master_key);
         assert_eq!(sign, sign_key);
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_success() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("test_key.json");
+
+        let valid_key = json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "d": "some_private_bytes",
+            "x": "some_public_bytes"
+        });
+
+        tokio::fs::write(&key_path, valid_key.to_string())
+            .await
+            .unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), valid_key);
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_not_found() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("non_existent.json");
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        // Error should be validation error about file not found
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_invalid_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("invalid.json");
+
+        tokio::fs::write(&key_path, "not a json").await.unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_missing_kty() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("no_kty.json");
+
+        // Valid JSON but not a valid JWK (missing kty)
+        let invalid_jwk = json!({
+            "alg": "EdDSA"
+        });
+
+        tokio::fs::write(&key_path, invalid_jwk.to_string())
+            .await
+            .unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing 'kty'"));
     }
 }

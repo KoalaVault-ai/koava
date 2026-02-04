@@ -825,25 +825,58 @@ impl EncryptService {
         Ok(())
     }
 
-    /// Get encryption keys from SDK
+    /// Get encryption keys (either from args or from API)
     async fn get_encryption_keys<C: crate::client::ApiClient + ?Sized>(
         &self,
         client: &C,
         args: &EncryptArgs,
     ) -> Result<EncryptionKeys> {
-        // Use the authenticated client passed from caller
+        // Check if manual keys are provided
+        if let (Some(master_key_path), Some(sign_key_path)) = (&args.master_key, &args.sign_key) {
+            self.ui.info("Using manual encryption keys from file...");
+
+            let master_key = crate::key::load_key_from_file(master_key_path).await?;
+            let user_sign_key = crate::key::load_key_from_file(sign_key_path).await?;
+
+            // Warn if keys might be insecure (missing JKU or wrong JKU)
+            // We don't block, just warn.
+            for (key, name) in &[(&master_key, "master key"), (&user_sign_key, "sign key")] {
+                let jku = key.get("jku").and_then(|v| v.as_str());
+                if jku.is_none() {
+                    self.ui.warning(&format!(
+                        "Manual {} has no JKU field. Ensure it is from a trusted source.",
+                        name
+                    ));
+                }
+            }
+
+            self.ui.success("Loaded manual keys successfully");
+
+            return Ok(EncryptionKeys {
+                user_sign_key,
+                master_key,
+            });
+        }
+
+        // Infer model name
+        let model_name = self.infer_model_name(args)?;
+
+        // Ensure user is logged in
+        if !client.is_authenticated() {
+            return Err(KoavaError::authentication(
+                "You must be logged in to encrypt files (or use --master-key and --sign-key for offline encryption)",
+            ));
+        }
+
+        // Create key service
         let key_service = KeyService::new(client);
 
-        // Get user's sign key for signing
-        let sign_key_jwk = key_service.request_sign_key().await?;
-
-        // Resolve model name using unified inference
-        let model_name = self.infer_model_name(args)?;
-        let enc_key_jwk = key_service.request_master_key(&model_name).await?;
+        // Get keys from API
+        let (master_key, user_sign_key) = key_service.request_keys_for_model(&model_name).await?;
 
         Ok(EncryptionKeys {
-            user_sign_key: sign_key_jwk,
-            master_key: enc_key_jwk,
+            user_sign_key,
+            master_key,
         })
     }
 
@@ -1474,7 +1507,7 @@ mod tests {
         fn test_remove_compliance_block_prop(content in "\\PC*") {
             let service = create_test_service();
             // Construct a content with block
-            let block = format!("<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->\nSOME INFO\n<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->\n");
+            let block = "<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->\nSOME INFO\n<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->\n".to_string();
             let with_block = format!("{}{}", block, content);
 
             let removed = service.remove_compliance_block(&with_block);
@@ -1570,6 +1603,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "custom-name");
 
@@ -1584,6 +1619,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "output-name");
 
@@ -1597,6 +1634,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "llama-2-7b");
 
@@ -1727,6 +1766,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
 
         let plan = service
@@ -1788,5 +1829,53 @@ mod tests {
             )
             .await;
         assert!(plan.is_ok());
+    }
+    #[tokio::test]
+    async fn test_get_encryption_keys_manual() {
+        let service = create_test_service();
+        let client = crate::tests::mocks::MockApiClient::new(crate::config::Config::default());
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create dummy keys
+        let master_key_path = temp_dir.path().join("master.json");
+        let sign_key_path = temp_dir.path().join("sign.json");
+
+        let master_jwk = serde_json::json!({
+            "kty": "oct",
+            "k": "secret",
+            "jku": "koalavault://resources/test/master"
+        });
+        let sign_jwk = serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "public",
+            "d": "private",
+            "jku": "koalavault://users/test/sign"
+        });
+
+        tokio::fs::write(&master_key_path, master_jwk.to_string())
+            .await
+            .unwrap();
+        tokio::fs::write(&sign_key_path, sign_jwk.to_string())
+            .await
+            .unwrap();
+
+        let args = EncryptArgs {
+            model_path: std::path::PathBuf::from("."),
+            name: None,
+            output: None,
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+            master_key: Some(master_key_path),
+            sign_key: Some(sign_key_path),
+        };
+
+        let keys = service.get_encryption_keys(&client, &args).await.unwrap();
+
+        assert_eq!(keys.master_key, master_jwk);
+        assert_eq!(keys.user_sign_key, sign_jwk);
     }
 }

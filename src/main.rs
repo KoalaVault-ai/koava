@@ -173,6 +173,14 @@ pub struct EncryptArgs {
     /// Force encryption even if backup directory exists (overwrites existing backup)
     #[arg(long)]
     pub force: bool,
+
+    /// Path to Master Key JWK file (for offline/manual encryption)
+    #[arg(long, requires = "sign_key")]
+    pub master_key: Option<PathBuf>,
+
+    /// Path to User Sign Key JWK file (for offline/manual encryption)
+    #[arg(long, requires = "master_key")]
+    pub sign_key: Option<PathBuf>,
 }
 
 #[derive(Args)]

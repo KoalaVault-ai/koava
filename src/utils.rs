@@ -252,7 +252,7 @@ mod tests {
             let decoded = CryptoUtils::decode_base64(&header_b64).unwrap();
 
             // First 8 bytes should be the header length
-            assert_eq!(decoded.len() >= 8, true);
+            assert!(decoded.len() >= 8);
         }
 
         #[tokio::test]
@@ -271,7 +271,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(is_encrypted, false);
+            assert!(!is_encrypted);
         }
 
         #[tokio::test]
@@ -283,7 +283,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(is_encrypted, true);
+            assert!(is_encrypted);
         }
 
         #[test]

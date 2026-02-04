@@ -99,11 +99,8 @@ impl ApiClient for MockApiClient {
         R: DeserializeOwned + Send + 'static,
     {
         // Record the request
-        let payload_json = if let Some(p) = payload {
-            Some(serde_json::to_value(p).unwrap_or(serde_json::Value::Null))
-        } else {
-            None
-        };
+        let payload_json =
+            payload.map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null));
 
         self.requests.lock().unwrap().push(RecordedRequest {
             method: method.clone(),

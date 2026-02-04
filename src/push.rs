@@ -171,6 +171,8 @@ impl<C: ApiClient + 'static> PushService<C> {
                     exclude: None,
                     dry_run: false,
                     force: args.force,
+                    master_key: None,
+                    sign_key: None,
                 },
             )
             .await?;
