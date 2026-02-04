@@ -51,9 +51,7 @@ impl CryptoUtils {
 
     /// Calculate SHA256 hash of a string (used for header hashing)
     pub fn calculate_sha256_hash(data: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(data.as_bytes());
-        hex::encode(hasher.finalize())
+        Self::calculate_sha256_hash_bytes(data.as_bytes())
     }
 
     /// Calculate SHA256 hash of bytes
