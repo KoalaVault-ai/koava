@@ -838,6 +838,24 @@ impl EncryptService {
             let master_key = crate::key::load_key_from_file(master_key_path).await?;
             let user_sign_key = crate::key::load_key_from_file(sign_key_path).await?;
 
+            // Warn if keys might be insecure (missing JKU or wrong JKU)
+            // We don't block, just warn.
+            for (key, name) in &[(&master_key, "master key"), (&user_sign_key, "sign key")] {
+                let jku = key.get("jku").and_then(|v| v.as_str());
+                match jku {
+                    Some(j) if !j.starts_with("koalavault://") => {
+                        self.ui.warning(&format!("Manual {} has non-standard JKU: '{}'. Ensure it is from a trusted source.", name, j));
+                    }
+                    None => {
+                        self.ui.warning(&format!(
+                            "Manual {} has no JKU field. Ensure it is from a trusted source.",
+                            name
+                        ));
+                    }
+                    _ => {} // Valid koalavault:// JKU
+                }
+            }
+
             self.ui.success("Loaded manual keys successfully");
 
             return Ok(EncryptionKeys {

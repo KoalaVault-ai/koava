@@ -376,4 +376,67 @@ mod tests {
         assert_eq!(enc, master_key);
         assert_eq!(sign, sign_key);
     }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_success() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("test_key.json");
+
+        let valid_key = json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "d": "some_private_bytes",
+            "x": "some_public_bytes"
+        });
+
+        tokio::fs::write(&key_path, valid_key.to_string())
+            .await
+            .unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), valid_key);
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_not_found() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("non_existent.json");
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        // Error should be validation error about file not found
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_invalid_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("invalid.json");
+
+        tokio::fs::write(&key_path, "not a json").await.unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_load_key_from_file_missing_kty() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let key_path = temp_dir.path().join("no_kty.json");
+
+        // Valid JSON but not a valid JWK (missing kty)
+        let invalid_jwk = json!({
+            "alg": "EdDSA"
+        });
+
+        tokio::fs::write(&key_path, invalid_jwk.to_string())
+            .await
+            .unwrap();
+
+        let result = load_key_from_file(&key_path).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing 'kty'"));
+    }
 }
