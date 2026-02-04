@@ -84,8 +84,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
 
             match self
                 .process_batch(
-                    batch_num,
-                    total_batches,
+                    (batch_num, total_batches),
                     chunk,
                     &username,
                     model_name,
@@ -196,14 +195,14 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
     /// Process a single batch of file uploads
     async fn process_batch(
         &self,
-        batch_num: usize,
-        total_batches: usize,
+        batch_info: (usize, usize),
         chunk: &[FileInfo],
         username: &str,
         model_name: &str,
         force: bool,
         progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<usize> {
+        let (batch_num, total_batches) = batch_info;
         if let Some(ref pb) = progress_bar {
             pb.set_message(format!("Uploading batch {}/{}", batch_num, total_batches));
         }
