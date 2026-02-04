@@ -5,7 +5,7 @@ use crate::ApiResponse;
 use koalavault_protocol::api::{GetModelMasterKeyResponse, GetUserSignKeyResponse};
 
 /// Expected jku prefix for KoalaVault keys
-const EXPECTED_JKU_PREFIX: &str = "koalavault://";
+pub const EXPECTED_JKU_PREFIX: &str = "koalavault://";
 
 /// Key vault for caching keys (stores raw JSON data)
 #[derive(Debug, Clone)]

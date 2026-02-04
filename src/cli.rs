@@ -69,9 +69,7 @@ impl CliHandler {
 
     /// Handle encrypt command
     async fn handle_encrypt(&mut self, args: EncryptArgs) -> Result<()> {
-        // If manual keys are provided, we don't strictly *need* an authenticated client.
-        // But EncryptService might need one for other things? No, get_encryption_keys already handles the bypass.
-        // However, EncryptService::new takes Config. And encrypt() takes &ApiClient.
+        // If manual keys are provided, we don't strictly need an authenticated client.
 
         let config = self.load_config().await?;
 
@@ -87,7 +85,8 @@ impl CliHandler {
                     // Not logged in, but that's okay for manual keys.
                     // Create a basic client (it won't be used for key fetching anyway)
                     self.ui.success("Running in offline mode with manual keys");
-                    std::sync::Arc::new(crate::HttpClient::new(config.clone()).unwrap())
+                    let http_client = crate::HttpClient::new(config.clone())?;
+                    std::sync::Arc::new(http_client)
                 }
             };
 

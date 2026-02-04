@@ -843,16 +843,13 @@ impl EncryptService {
             for (key, name) in &[(&master_key, "master key"), (&user_sign_key, "sign key")] {
                 let jku = key.get("jku").and_then(|v| v.as_str());
                 match jku {
-                    Some(j) if !j.starts_with("koalavault://") => {
-                        self.ui.warning(&format!("Manual {} has non-standard JKU: '{}'. Ensure it is from a trusted source.", name, j));
-                    }
                     None => {
                         self.ui.warning(&format!(
                             "Manual {} has no JKU field. Ensure it is from a trusted source.",
                             name
                         ));
                     }
-                    _ => {} // Valid koalavault:// JKU
+                    _ => {} // Any JKU is acceptable for manual keys
                 }
             }
 
@@ -1835,5 +1832,53 @@ mod tests {
             )
             .await;
         assert!(plan.is_ok());
+    }
+    #[tokio::test]
+    async fn test_get_encryption_keys_manual() {
+        let service = create_test_service();
+        let client = crate::tests::mocks::MockApiClient::new(crate::config::Config::default());
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Create dummy keys
+        let master_key_path = temp_dir.path().join("master.json");
+        let sign_key_path = temp_dir.path().join("sign.json");
+
+        let master_jwk = serde_json::json!({
+            "kty": "oct",
+            "k": "secret",
+            "jku": "koalavault://resources/test/master"
+        });
+        let sign_jwk = serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "public",
+            "d": "private",
+            "jku": "koalavault://users/test/sign"
+        });
+
+        tokio::fs::write(&master_key_path, master_jwk.to_string())
+            .await
+            .unwrap();
+        tokio::fs::write(&sign_key_path, sign_jwk.to_string())
+            .await
+            .unwrap();
+
+        let args = EncryptArgs {
+            model_path: std::path::PathBuf::from("."),
+            name: None,
+            output: None,
+            no_backup: false,
+            files: None,
+            exclude: None,
+            dry_run: false,
+            force: false,
+            master_key: Some(master_key_path),
+            sign_key: Some(sign_key_path),
+        };
+
+        let keys = service.get_encryption_keys(&client, &args).await.unwrap();
+
+        assert_eq!(keys.master_key, master_jwk);
+        assert_eq!(keys.user_sign_key, sign_jwk);
     }
 }
