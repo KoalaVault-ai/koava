@@ -471,8 +471,10 @@ mod tests {
         let config_path = temp_dir.path().join("config.json");
 
         // Start with non-default config
-        let mut config = Config::default();
-        config.timeout = 999;
+        let config = Config {
+            timeout: 999,
+            ..Default::default()
+        };
         config.save(&config_path).await.unwrap();
 
         let mut service = ConfigService::with_config_path(config, config_path.clone());
@@ -604,10 +606,10 @@ mod tests {
             base in "https://[a-z0-9.]+",
             endpoint in "[a-z0-9/]+"
         ) {
-            let mut config = Config::default();
-
-            // Case 1: Base with trailing slash, endpoint with leading slash
-            config.endpoint = format!("{}/", base);
+            let mut config = Config {
+                endpoint: format!("{}/", base),
+                ..Default::default()
+            };
             let result = config.endpoint_url(&format!("/{}", endpoint));
             let expected_endpoint = endpoint.trim_start_matches('/');
             prop_assert_eq!(result, format!("{}/{}", base, expected_endpoint));
@@ -624,8 +626,10 @@ mod tests {
             host in "[a-z0-9.]+",
             endpoint in "[a-z0-9]+"
         ) {
-            let mut config = Config::default();
-            config.endpoint = host.clone();
+            let config = Config {
+                endpoint: host.clone(),
+                ..Default::default()
+            };
             let result = config.endpoint_url(&endpoint);
             prop_assert!(result.starts_with("https://"));
             prop_assert_eq!(result, format!("https://{}/{}", host, endpoint));
@@ -660,10 +664,10 @@ mod tests {
 
     #[test]
     fn test_get_api_endpoint() {
-        let mut config = Config::default();
-
-        // Case 1: No /api suffix
-        config.endpoint = "https://example.com".to_string();
+        let mut config = Config {
+            endpoint: "https://example.com".to_string(),
+            ..Default::default()
+        };
         assert_eq!(config.get_api_endpoint(), "https://example.com/api");
 
         // Case 2: With /api suffix

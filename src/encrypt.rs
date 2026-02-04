@@ -842,14 +842,11 @@ impl EncryptService {
             // We don't block, just warn.
             for (key, name) in &[(&master_key, "master key"), (&user_sign_key, "sign key")] {
                 let jku = key.get("jku").and_then(|v| v.as_str());
-                match jku {
-                    None => {
-                        self.ui.warning(&format!(
-                            "Manual {} has no JKU field. Ensure it is from a trusted source.",
-                            name
-                        ));
-                    }
-                    _ => {} // Any JKU is acceptable for manual keys
+                if jku.is_none() {
+                    self.ui.warning(&format!(
+                        "Manual {} has no JKU field. Ensure it is from a trusted source.",
+                        name
+                    ));
                 }
             }
 
@@ -1510,7 +1507,7 @@ mod tests {
         fn test_remove_compliance_block_prop(content in "\\PC*") {
             let service = create_test_service();
             // Construct a content with block
-            let block = format!("<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->\nSOME INFO\n<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->\n");
+            let block = "<!-- KOALAVAULT_ENCRYPTED_MODEL_START -->\nSOME INFO\n<!-- KOALAVAULT_ENCRYPTED_MODEL_END -->\n".to_string();
             let with_block = format!("{}{}", block, content);
 
             let removed = service.remove_compliance_block(&with_block);
