@@ -825,25 +825,46 @@ impl EncryptService {
         Ok(())
     }
 
-    /// Get encryption keys from SDK
+    /// Get encryption keys (either from args or from API)
     async fn get_encryption_keys<C: crate::client::ApiClient + ?Sized>(
         &self,
         client: &C,
         args: &EncryptArgs,
     ) -> Result<EncryptionKeys> {
-        // Use the authenticated client passed from caller
+        // Check if manual keys are provided
+        if let (Some(master_key_path), Some(sign_key_path)) = (&args.master_key, &args.sign_key) {
+            self.ui.info("Using manual encryption keys from file...");
+
+            let master_key = crate::key::load_key_from_file(master_key_path).await?;
+            let user_sign_key = crate::key::load_key_from_file(sign_key_path).await?;
+
+            self.ui.success("Loaded manual keys successfully");
+
+            return Ok(EncryptionKeys {
+                user_sign_key,
+                master_key,
+            });
+        }
+
+        // Infer model name
+        let model_name = self.infer_model_name(args)?;
+
+        // Ensure user is logged in
+        if !client.is_authenticated() {
+            return Err(KoavaError::authentication(
+                "You must be logged in to encrypt files (or use --master-key and --sign-key for offline encryption)",
+            ));
+        }
+
+        // Create key service
         let key_service = KeyService::new(client);
 
-        // Get user's sign key for signing
-        let sign_key_jwk = key_service.request_sign_key().await?;
-
-        // Resolve model name using unified inference
-        let model_name = self.infer_model_name(args)?;
-        let enc_key_jwk = key_service.request_master_key(&model_name).await?;
+        // Get keys from API
+        let (master_key, user_sign_key) = key_service.request_keys_for_model(&model_name).await?;
 
         Ok(EncryptionKeys {
-            user_sign_key: sign_key_jwk,
-            master_key: enc_key_jwk,
+            user_sign_key,
+            master_key,
         })
     }
 
@@ -1570,6 +1591,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "custom-name");
 
@@ -1584,6 +1607,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "output-name");
 
@@ -1597,6 +1622,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
         assert_eq!(service.infer_model_name(&args).unwrap(), "llama-2-7b");
 
@@ -1727,6 +1754,8 @@ mod tests {
             exclude: None,
             dry_run: false,
             force: false,
+            master_key: None,
+            sign_key: None,
         };
 
         let plan = service

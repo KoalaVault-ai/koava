@@ -63,6 +63,10 @@ koava encrypt ./my-model
 # Encrypt to a different directory
 koava encrypt ./my-model --output ./encrypted-model
 
+# Encrypt with manual keys (offline mode / local convenience)
+# Note: 'push' command handles keys automatically and does not support manual keys
+koava encrypt ./my-model --master-key ./keys/master.json --sign-key ./keys/sign.json
+
 # Dry run (preview what would be done)
 koava encrypt ./my-model --dry-run
 ```

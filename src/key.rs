@@ -170,6 +170,43 @@ impl<'a, C: ApiClient + ?Sized> KeyService<'a, C> {
     }
 }
 
+/// Load a key (JWK) from a file
+///
+/// Reads a JSON file and parses it as a JWK (serde_json::Value).
+pub async fn load_key_from_file(path: &std::path::Path) -> Result<serde_json::Value> {
+    if !path.exists() {
+        return Err(KoavaError::validation(format!(
+            "Key file not found: {}",
+            path.display()
+        )));
+    }
+
+    let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        KoavaError::io(
+            "Read key file",
+            format!("Failed to read key file {}: {}", path.display(), e),
+        )
+    })?;
+
+    let key: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        KoavaError::validation(format!(
+            "Invalid JSON in key file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    // Basic JWK validation
+    if key.get("kty").is_none() {
+        return Err(KoavaError::validation(format!(
+            "Invalid JWK: missing 'kty' field in {}",
+            path.display()
+        )));
+    }
+
+    Ok(key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
