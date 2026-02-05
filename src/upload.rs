@@ -158,7 +158,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
 
     /// Extract file headers from encrypted model files
     async fn extract_file_headers(&self, model: &ModelDirectory) -> Result<Vec<FileInfo>> {
-        let mut file_infos = Vec::new();
+        let mut tasks = Vec::new();
 
         for file in &model.all_files {
             if !file.is_encrypted {
@@ -167,23 +167,39 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
                 continue;
             }
 
-            match CryptoUtils::extract_safetensors_header(&file.path).await {
-                Ok(header_data) => {
+            let file_path = file.path.clone();
+            let file_name = file.name.clone();
+
+            tasks.push(tokio::spawn(async move {
+                match CryptoUtils::extract_safetensors_header(&file_path).await {
+                    Ok(header) => Ok((file_name, header)),
+                    Err(e) => Err((file_name, e)),
+                }
+            }));
+        }
+
+        let mut file_infos = Vec::new();
+        for task in tasks {
+            let result = task
+                .await
+                .map_err(|e| KoavaError::internal(format!("Task join failed: {}", e)))?;
+
+            match result {
+                Ok((filename, header_data)) => {
                     let file_info = FileInfo {
                         id: None,
-                        filename: file.name.clone(),
+                        filename,
                         file_header: Some(header_data),
                         created_at: None,
                         updated_at: None,
                     };
-
                     file_infos.push(file_info);
                 }
-                Err(e) => {
+                Err((filename, e)) => {
                     // Immediately return error when header extraction fails (strict mode)
                     return Err(KoavaError::crypto(format!(
                         "Failed to extract header from file '{}': {}. All files must have valid headers to proceed.",
-                        file.name, e
+                        filename, e
                     )));
                 }
             }
