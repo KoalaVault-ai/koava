@@ -68,26 +68,33 @@ impl ModelDirectory {
             .into_iter()
             .filter_map(|e| e.ok());
 
+        let mut tasks = Vec::new();
         for entry in walker {
             if entry.file_type().is_file() {
-                let file_path = entry.path();
+                let file_path = entry.path().to_owned();
 
                 // Check if it's a safetensors or cryptotensors file
                 if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
                     let ext_lower = ext.to_lowercase();
                     if ext_lower == "safetensors" || ext_lower == "cryptotensors" {
-                        match ModelFile::from_path(file_path).await {
-                            Ok(model_file) => {
-                                let size = model_file.size;
-                                let _name = model_file.name.clone();
-                                let _is_encrypted = model_file.is_encrypted;
-                                total_size += size;
-                                all_files.push(model_file);
-                            }
-                            Err(_e) => {
-                                // Skip files that can't be parsed
-                            }
-                        }
+                        tasks.push(tokio::spawn(async move {
+                            ModelFile::from_path(&file_path).await
+                        }));
+                    }
+                }
+            }
+        }
+
+        for task in tasks {
+            if let Ok(result) = task.await {
+                match result {
+                    Ok(model_file) => {
+                        let size = model_file.size;
+                        total_size += size;
+                        all_files.push(model_file);
+                    }
+                    Err(_e) => {
+                        // Skip files that can't be parsed
                     }
                 }
             }

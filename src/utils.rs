@@ -164,19 +164,19 @@ impl CryptoUtils {
 
 /// Format bytes into human readable string
 pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit_index = 0;
-
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_index += 1;
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB", "EB"];
+    if bytes == 0 {
+        return "0 B".to_string();
     }
 
-    if unit_index == 0 {
-        format!("{} {}", bytes, UNITS[unit_index])
+    let i = (bytes as f64).log(1024.0).floor() as usize;
+    let i = std::cmp::min(i, UNITS.len() - 1);
+    let size = bytes as f64 / 1024.0_f64.powi(i as i32);
+
+    if i == 0 {
+        format!("{} {}", bytes, UNITS[i])
     } else {
-        format!("{:.1} {}", size, UNITS[unit_index])
+        format!("{:.1} {}", size, UNITS[i])
     }
 }
 
