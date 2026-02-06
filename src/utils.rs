@@ -81,9 +81,10 @@ impl CryptoUtils {
         let header_len = u64::from_le_bytes(header_len_bytes) as usize;
 
         if header_len > Self::MAX_HEADER_SIZE {
-            return Err(KoavaError::validation(
-                "Header too large (exceeds 1MB limit)",
-            ));
+            return Err(KoavaError::validation(format!(
+                "Header too large (exceeds {} limit)",
+                format_bytes(Self::MAX_HEADER_SIZE as u64)
+            )));
         }
 
         let mut header_json_bytes = vec![0u8; header_len];
