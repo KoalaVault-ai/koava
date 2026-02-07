@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tokio::task::JoinSet;
 
 use crate::client::ApiClient;
 use crate::error::{KoavaError, Result};
@@ -158,6 +159,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
 
     /// Extract file headers from encrypted model files
     async fn extract_file_headers(&self, model: &ModelDirectory) -> Result<Vec<FileInfo>> {
+        let mut join_set = JoinSet::new();
         let mut file_infos = Vec::new();
 
         for file in &model.all_files {
@@ -167,27 +169,39 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
                 continue;
             }
 
-            match CryptoUtils::extract_safetensors_header(&file.path).await {
-                Ok(header_data) => {
-                    let file_info = FileInfo {
+            let file_path = file.path.clone();
+            let file_name = file.name.clone();
+
+            join_set.spawn(async move {
+                match CryptoUtils::extract_safetensors_header(&file_path).await {
+                    Ok(header_data) => Ok(FileInfo {
                         id: None,
-                        filename: file.name.clone(),
+                        filename: file_name,
                         file_header: Some(header_data),
                         created_at: None,
                         updated_at: None,
-                    };
-
-                    file_infos.push(file_info);
+                    }),
+                    Err(e) => Err((file_name, e)),
                 }
-                Err(e) => {
+            });
+        }
+
+        while let Some(res) = join_set.join_next().await {
+            match res {
+                Ok(Ok(file_info)) => file_infos.push(file_info),
+                Ok(Err((filename, e))) => {
                     // Immediately return error when header extraction fails (strict mode)
                     return Err(KoavaError::crypto(format!(
                         "Failed to extract header from file '{}': {}. All files must have valid headers to proceed.",
-                        file.name, e
+                        filename, e
                     )));
                 }
+                Err(e) => return Err(KoavaError::io("Task join error", e.to_string())),
             }
         }
+
+        // Sort by filename to ensure deterministic order
+        file_infos.sort_by(|a, b| a.filename.cmp(&b.filename));
 
         Ok(file_infos)
     }
