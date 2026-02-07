@@ -158,6 +158,10 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
     }
 
     /// Extract file headers from encrypted model files
+    ///
+    /// This method processes files in parallel using `JoinSet` to improve performance
+    /// when handling multiple large encrypted files. It maintains strict error handling
+    /// (aborts on first error) and ensures deterministic output by sorting results.
     async fn extract_file_headers(&self, model: &ModelDirectory) -> Result<Vec<FileInfo>> {
         let mut join_set = JoinSet::new();
         let mut file_infos = Vec::new();
