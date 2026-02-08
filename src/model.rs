@@ -75,7 +75,12 @@ impl ModelDirectory {
                 format!("Failed to read directory entry: {}", e),
             )
         })? {
-            if entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
+            if entry
+                .file_type()
+                .await
+                .map(|t| t.is_file())
+                .unwrap_or(false)
+            {
                 let file_path = entry.path();
 
                 // Check if it's a safetensors or cryptotensors file
