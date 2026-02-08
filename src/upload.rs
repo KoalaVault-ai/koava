@@ -158,7 +158,7 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
 
     /// Extract file headers from encrypted model files
     async fn extract_file_headers(&self, model: &ModelDirectory) -> Result<Vec<FileInfo>> {
-        let mut file_infos = Vec::new();
+        let mut join_set = tokio::task::JoinSet::new();
 
         for file in &model.all_files {
             if !file.is_encrypted {
@@ -167,27 +167,46 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
                 continue;
             }
 
-            match CryptoUtils::extract_safetensors_header(&file.path).await {
-                Ok(header_data) => {
-                    let file_info = FileInfo {
+            let file_path = file.path.clone();
+            let file_name = file.name.clone();
+
+            join_set.spawn(async move {
+                match CryptoUtils::extract_safetensors_header(&file_path).await {
+                    Ok(header_data) => Ok(FileInfo {
                         id: None,
-                        filename: file.name.clone(),
+                        filename: file_name,
                         file_header: Some(header_data),
                         created_at: None,
                         updated_at: None,
-                    };
-
-                    file_infos.push(file_info);
+                    }),
+                    Err(e) => Err((file_name, e)),
                 }
+            });
+        }
+
+        let mut file_infos = Vec::new();
+
+        while let Some(res) = join_set.join_next().await {
+            match res {
+                Ok(result) => match result {
+                    Ok(info) => file_infos.push(info),
+                    Err((name, e)) => {
+                        // Immediately return error when header extraction fails (strict mode)
+                        // JoinSet will be dropped, cancelling remaining tasks
+                        return Err(KoavaError::crypto(format!(
+                            "Failed to extract header from file '{}': {}. All files must have valid headers to proceed.",
+                            name, e
+                        )));
+                    }
+                },
                 Err(e) => {
-                    // Immediately return error when header extraction fails (strict mode)
-                    return Err(KoavaError::crypto(format!(
-                        "Failed to extract header from file '{}': {}. All files must have valid headers to proceed.",
-                        file.name, e
-                    )));
+                    return Err(KoavaError::internal(format!("Task join error: {}", e)));
                 }
             }
         }
+
+        // Sort file infos by filename to ensure deterministic order
+        file_infos.sort_by(|a, b| a.filename.cmp(&b.filename));
 
         Ok(file_infos)
     }
