@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use walkdir::WalkDir;
 
 use crate::error::{KoavaError, Result};
 use crate::policy::LoadPolicy;
@@ -62,25 +61,31 @@ impl ModelDirectory {
         let mut all_files = Vec::new();
         let mut total_size = 0u64;
 
-        // Simple directory scanning - process only the model directory itself
-        let walker = WalkDir::new(path)
-            .max_depth(1) // Shallow scan - only current directory
-            .into_iter()
-            .filter_map(|e| e.ok());
+        // Use async directory scanning instead of blocking WalkDir
+        let mut entries = fs::read_dir(path).await.map_err(|e| {
+            KoavaError::io(
+                "Directory scanning",
+                format!("Failed to read directory {}: {}", path.display(), e),
+            )
+        })?;
 
-        for entry in walker {
-            if entry.file_type().is_file() {
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            KoavaError::io("Directory entry", format!("Failed to read entry: {}", e))
+        })? {
+            let file_type = entry.file_type().await.map_err(|e| {
+                KoavaError::io("File type", format!("Failed to get file type: {}", e))
+            })?;
+
+            if file_type.is_file() {
                 let file_path = entry.path();
 
                 // Check if it's a safetensors or cryptotensors file
                 if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
                     let ext_lower = ext.to_lowercase();
                     if ext_lower == "safetensors" || ext_lower == "cryptotensors" {
-                        match ModelFile::from_path(file_path).await {
+                        match ModelFile::from_path(&file_path).await {
                             Ok(model_file) => {
                                 let size = model_file.size;
-                                let _name = model_file.name.clone();
-                                let _is_encrypted = model_file.is_encrypted;
                                 total_size += size;
                                 all_files.push(model_file);
                             }
@@ -566,28 +571,12 @@ impl ModelService {
         let model_name = if let Some(name) = &args.name {
             name.clone()
         } else {
-            use std::path::Component;
-
-            let basename_from = |p: &Path| -> Option<String> {
-                p.components().rev().find_map(|c| match c {
-                    Component::Normal(s) => s.to_str().map(|s| s.to_string()),
-                    _ => None,
-                })
-            };
-
             // Canonicalize path to handle "." case
             match model_dir.path.canonicalize() {
-                Ok(canonical_path) => basename_from(canonical_path.as_path())
+                Ok(canonical_path) => crate::utils::infer_model_name_from_path(&canonical_path)
                     .unwrap_or_else(|| "unknown-model".to_string()),
-                Err(_) => {
-                    // Fallback to file_name if canonicalize fails
-                    model_dir
-                        .path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "unknown-model".to_string())
-                }
+                Err(_) => crate::utils::infer_model_name_from_path(&model_dir.path)
+                    .unwrap_or_else(|| "unknown-model".to_string()),
             }
         };
 

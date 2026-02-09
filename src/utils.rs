@@ -180,6 +180,15 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Infer model name from path components
+pub fn infer_model_name_from_path(path: &Path) -> Option<String> {
+    use std::path::Component;
+    path.components().rev().find_map(|c| match c {
+        Component::Normal(s) => s.to_str().map(|s| s.to_string()),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +336,19 @@ mod tests {
             assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
             assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
             assert_eq!(format_bytes(1536), "1.5 KB");
+        }
+
+        #[test]
+        fn test_infer_model_name_from_path() {
+            let path = Path::new("/path/to/my-model");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "my-model");
+
+            let path = Path::new("relative/model");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "model");
+
+            // Trailing slash handling depends on normalization, but components() usually handles it
+            let path = Path::new("model");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "model");
         }
     }
 
