@@ -4,6 +4,7 @@ use base64::{engine::general_purpose, Engine};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use tokio::io::AsyncReadExt;
 
 use crate::error::{KoavaError, Result};
 
@@ -61,16 +62,16 @@ impl CryptoUtils {
         hex::encode(hasher.finalize())
     }
 
-    /// Read the safetensors header raw bytes (excluding length prefix).
+    /// Read the safetensors header raw bytes (including length prefix).
     /// This function handles the 8-byte length reading and size validation.
-    pub async fn read_safetensors_header_raw<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
+    /// Returns the full header bytes (length prefix + JSON content).
+    pub async fn read_safetensors_full_header<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
         let file_path = file_path.as_ref();
         let mut file = tokio::fs::File::open(file_path)
             .await
             .map_err(|e| KoavaError::io("File open", format!("Failed to open file: {}", e)))?;
 
         let mut header_len_bytes = [0u8; Self::HEADER_LENGTH_SIZE];
-        use tokio::io::AsyncReadExt;
         file.read_exact(&mut header_len_bytes).await.map_err(|e| {
             KoavaError::io(
                 "Header read",
@@ -86,25 +87,26 @@ impl CryptoUtils {
             ));
         }
 
-        let mut header_json_bytes = vec![0u8; header_len];
-        file.read_exact(&mut header_json_bytes).await.map_err(|e| {
-            KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
-        })?;
+        // Allocate buffer for full header (length + JSON) to avoid re-allocation later
+        let mut full_header = vec![0u8; Self::HEADER_LENGTH_SIZE + header_len];
 
-        Ok(header_json_bytes)
+        // Copy length bytes to the beginning
+        full_header[..Self::HEADER_LENGTH_SIZE].copy_from_slice(&header_len_bytes);
+
+        // Read JSON content directly into the buffer after the length prefix
+        file.read_exact(&mut full_header[Self::HEADER_LENGTH_SIZE..])
+            .await
+            .map_err(|e| {
+                KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
+            })?;
+
+        Ok(full_header)
     }
 
     /// Extract header data from a Safetensors file
     /// This reads the first 8 bytes (header length) + header JSON and encodes as base64
     pub async fn extract_safetensors_header<P: AsRef<Path>>(file_path: P) -> Result<String> {
-        let header_json_bytes = Self::read_safetensors_header_raw(file_path).await?;
-        let header_len = header_json_bytes.len();
-        let header_len_bytes = (header_len as u64).to_le_bytes();
-
-        // Combine header length + header JSON
-        let mut header_data = Vec::with_capacity(Self::HEADER_LENGTH_SIZE + header_len);
-        header_data.extend_from_slice(&header_len_bytes);
-        header_data.extend_from_slice(&header_json_bytes);
+        let header_data = Self::read_safetensors_full_header(file_path).await?;
 
         // Encode as base64
         let header_b64 = general_purpose::STANDARD.encode(&header_data);
@@ -141,11 +143,14 @@ impl CryptoUtils {
     /// Detect if a safetensors file is encrypted by checking its header metadata
     /// This function only reads the file header portion, not the entire file
     pub async fn detect_safetensors_encryption<P: AsRef<Path>>(file_path: P) -> Result<bool> {
-        let header_json_bytes = Self::read_safetensors_header_raw(file_path).await?;
+        let header_data = Self::read_safetensors_full_header(file_path).await?;
+
+        // Skip length prefix to get JSON content
+        let header_json_bytes = &header_data[Self::HEADER_LENGTH_SIZE..];
 
         // Parse the header JSON to check for encryption metadata
         let header_json: serde_json::Value =
-            serde_json::from_slice(&header_json_bytes).map_err(|e| {
+            serde_json::from_slice(header_json_bytes).map_err(|e| {
                 KoavaError::serialization(format!("Failed to parse header JSON: {}", e))
             })?;
 
@@ -165,11 +170,13 @@ impl CryptoUtils {
 /// Format bytes into human readable string
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const UNIT_MULTIPLIER: f64 = 1024.0;
+
     let mut size = bytes as f64;
     let mut unit_index = 0;
 
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
+    while size >= UNIT_MULTIPLIER && unit_index < UNITS.len() - 1 {
+        size /= UNIT_MULTIPLIER;
         unit_index += 1;
     }
 
@@ -378,12 +385,13 @@ mod tests {
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
                 // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
                 if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
+                    prop_assert!(formatted.ends_with(" B"));
                 } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                    prop_assert!(formatted.ends_with(" KB"));
+                } else if bytes < 1024 * 1024 * 1024 {
+                    prop_assert!(formatted.ends_with(" MB"));
                 }
             }
         }
