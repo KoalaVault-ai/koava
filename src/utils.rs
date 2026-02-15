@@ -61,9 +61,9 @@ impl CryptoUtils {
         hex::encode(hasher.finalize())
     }
 
-    /// Read the safetensors header raw bytes (excluding length prefix).
+    /// Read the safetensors full header (length prefix + JSON body).
     /// This function handles the 8-byte length reading and size validation.
-    pub async fn read_safetensors_header_raw<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
+    pub async fn read_safetensors_full_header<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
         let file_path = file_path.as_ref();
         let mut file = tokio::fs::File::open(file_path)
             .await
@@ -86,26 +86,30 @@ impl CryptoUtils {
             ));
         }
 
-        let mut header_json_bytes = vec![0u8; header_len];
-        file.read_exact(&mut header_json_bytes).await.map_err(|e| {
-            KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
-        })?;
+        let mut buffer = Vec::with_capacity(Self::HEADER_LENGTH_SIZE + header_len);
+        buffer.extend_from_slice(&header_len_bytes);
+        buffer.resize(Self::HEADER_LENGTH_SIZE + header_len, 0);
 
-        Ok(header_json_bytes)
+        file.read_exact(&mut buffer[Self::HEADER_LENGTH_SIZE..])
+            .await
+            .map_err(|e| {
+                KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
+            })?;
+
+        Ok(buffer)
+    }
+
+    /// Read the safetensors header raw bytes (excluding length prefix).
+    /// This is kept for backward compatibility and wraps read_safetensors_full_header.
+    pub async fn read_safetensors_header_raw<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
+        let full_header = Self::read_safetensors_full_header(file_path).await?;
+        Ok(full_header[Self::HEADER_LENGTH_SIZE..].to_vec())
     }
 
     /// Extract header data from a Safetensors file
     /// This reads the first 8 bytes (header length) + header JSON and encodes as base64
     pub async fn extract_safetensors_header<P: AsRef<Path>>(file_path: P) -> Result<String> {
-        let header_json_bytes = Self::read_safetensors_header_raw(file_path).await?;
-        let header_len = header_json_bytes.len();
-        let header_len_bytes = (header_len as u64).to_le_bytes();
-
-        // Combine header length + header JSON
-        let mut header_data = Vec::with_capacity(Self::HEADER_LENGTH_SIZE + header_len);
-        header_data.extend_from_slice(&header_len_bytes);
-        header_data.extend_from_slice(&header_json_bytes);
-
+        let header_data = Self::read_safetensors_full_header(file_path).await?;
         // Encode as base64
         let header_b64 = general_purpose::STANDARD.encode(&header_data);
         Ok(header_b64)
@@ -141,11 +145,12 @@ impl CryptoUtils {
     /// Detect if a safetensors file is encrypted by checking its header metadata
     /// This function only reads the file header portion, not the entire file
     pub async fn detect_safetensors_encryption<P: AsRef<Path>>(file_path: P) -> Result<bool> {
-        let header_json_bytes = Self::read_safetensors_header_raw(file_path).await?;
+        let full_header = Self::read_safetensors_full_header(file_path).await?;
+        let header_json_bytes = &full_header[Self::HEADER_LENGTH_SIZE..];
 
         // Parse the header JSON to check for encryption metadata
         let header_json: serde_json::Value =
-            serde_json::from_slice(&header_json_bytes).map_err(|e| {
+            serde_json::from_slice(header_json_bytes).map_err(|e| {
                 KoavaError::serialization(format!("Failed to parse header JSON: {}", e))
             })?;
 
