@@ -63,10 +63,7 @@ impl ModelDirectory {
 
         // Simple directory scanning - process only the model directory itself
         let mut entries = fs::read_dir(path).await.map_err(|e| {
-            KoavaError::io(
-                "Directory scan",
-                format!("Failed to read directory: {}", e),
-            )
+            KoavaError::io("Directory scan", format!("Failed to read directory: {}", e))
         })?;
 
         while let Some(entry) = entries.next_entry().await.map_err(|e| {
