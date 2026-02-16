@@ -239,8 +239,13 @@ impl UI {
 
     /// Print a box with content
     pub fn box_content(&self, title: &str, lines: Vec<String>) {
-        let max_line_length = lines.iter().map(|l| l.len()).max().unwrap_or(0);
-        let box_width = (max_line_length + 4).max(title.len() + 4);
+        let max_line_width = lines
+            .iter()
+            .map(|l| strip_ansi_codes(l).width())
+            .max()
+            .unwrap_or(0);
+        let title_width = strip_ansi_codes(title).width();
+        let box_width = (max_line_width + 4).max(title_width + 4);
         let supports_color = self.supports_color();
 
         println!("┌{}┐", "─".repeat(box_width - 2));
@@ -248,16 +253,17 @@ impl UI {
             println!(
                 "│ {} {}│",
                 title.cyan().bold(),
-                " ".repeat(box_width - title.len() - 4)
+                " ".repeat(box_width - title_width - 4)
             );
         } else {
-            println!("│ {} {}│", title, " ".repeat(box_width - title.len() - 4));
+            println!("│ {} {}│", title, " ".repeat(box_width - title_width - 4));
         }
 
         if !lines.is_empty() {
             println!("├{}┤", "─".repeat(box_width - 2));
             for line in lines {
-                println!("│ {}{} │", line, " ".repeat(box_width - line.len() - 4));
+                let line_width = strip_ansi_codes(&line).width();
+                println!("│ {}{} │", line, " ".repeat(box_width - line_width - 4));
             }
         }
 

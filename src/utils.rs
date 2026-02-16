@@ -378,12 +378,17 @@ mod tests {
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
                 // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
                 if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
+                    prop_assert!(formatted.ends_with(" B"));
                 } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                    prop_assert!(formatted.ends_with(" KB"));
+                } else if bytes < 1024 * 1024 * 1024 {
+                    prop_assert!(formatted.ends_with(" MB"));
+                } else if bytes < 1024 * 1024 * 1024 * 1024 {
+                    prop_assert!(formatted.ends_with(" GB"));
+                } else {
+                    prop_assert!(formatted.ends_with(" TB"));
                 }
             }
         }
