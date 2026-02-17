@@ -2,6 +2,7 @@
 
 use crate::config::Config;
 use crate::error::Result;
+use console::strip_ansi_codes;
 use std::path::PathBuf;
 
 /// Status of Hugging Face CLI
@@ -136,26 +137,41 @@ fn parse_hf_whoami_username(raw: &str) -> Option<String> {
     }
 }
 
-/// Strip ANSI escape codes from a string
-fn strip_ansi_codes(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next_ch) = chars.peek() {
-                    chars.next();
-                    if next_ch.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(ch);
-        }
+    #[test]
+    fn test_parse_hf_whoami_username() {
+        // Standard output
+        assert_eq!(
+            parse_hf_whoami_username("user123"),
+            Some("user123".to_string())
+        );
+
+        // With ANSI codes (simulated)
+        let colored = "\x1b[32muser123\x1b[0m";
+        assert_eq!(
+            parse_hf_whoami_username(colored),
+            Some("user123".to_string())
+        );
+
+        // Typical hf whoami output
+        assert_eq!(
+            parse_hf_whoami_username("Logged in as user123"),
+            Some("user123".to_string())
+        );
+
+        // With quotes
+        assert_eq!(
+            parse_hf_whoami_username("\"user123\""),
+            Some("user123".to_string())
+        );
+
+        // Not logged in
+        assert_eq!(parse_hf_whoami_username("Not logged in"), None);
+
+        // Empty string
+        assert_eq!(parse_hf_whoami_username(""), None);
     }
-
-    result
 }
