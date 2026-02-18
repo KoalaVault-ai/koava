@@ -61,9 +61,9 @@ impl CryptoUtils {
         hex::encode(hasher.finalize())
     }
 
-    /// Read the safetensors header raw bytes (excluding length prefix).
-    /// This function handles the 8-byte length reading and size validation.
-    pub async fn read_safetensors_header_raw<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
+    /// Read the full safetensors header (length prefix + JSON body).
+    /// This function handles the 8-byte length reading, size validation, and reads the full header into a single buffer.
+    pub async fn read_safetensors_full_header<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
         let file_path = file_path.as_ref();
         let mut file = tokio::fs::File::open(file_path)
             .await
@@ -86,26 +86,30 @@ impl CryptoUtils {
             ));
         }
 
-        let mut header_json_bytes = vec![0u8; header_len];
-        file.read_exact(&mut header_json_bytes).await.map_err(|e| {
-            KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
-        })?;
+        let mut header_data = vec![0u8; Self::HEADER_LENGTH_SIZE + header_len];
+        header_data[..Self::HEADER_LENGTH_SIZE].copy_from_slice(&header_len_bytes);
 
-        Ok(header_json_bytes)
+        file.read_exact(&mut header_data[Self::HEADER_LENGTH_SIZE..])
+            .await
+            .map_err(|e| {
+                KoavaError::io("Header read", format!("Failed to read header JSON: {}", e))
+            })?;
+
+        Ok(header_data)
+    }
+
+    /// Read the safetensors header raw bytes (excluding length prefix).
+    /// This function handles the 8-byte length reading and size validation.
+    pub async fn read_safetensors_header_raw<P: AsRef<Path>>(file_path: P) -> Result<Vec<u8>> {
+        let full_header = Self::read_safetensors_full_header(file_path).await?;
+        // Return only the JSON part
+        Ok(full_header[Self::HEADER_LENGTH_SIZE..].to_vec())
     }
 
     /// Extract header data from a Safetensors file
     /// This reads the first 8 bytes (header length) + header JSON and encodes as base64
     pub async fn extract_safetensors_header<P: AsRef<Path>>(file_path: P) -> Result<String> {
-        let header_json_bytes = Self::read_safetensors_header_raw(file_path).await?;
-        let header_len = header_json_bytes.len();
-        let header_len_bytes = (header_len as u64).to_le_bytes();
-
-        // Combine header length + header JSON
-        let mut header_data = Vec::with_capacity(Self::HEADER_LENGTH_SIZE + header_len);
-        header_data.extend_from_slice(&header_len_bytes);
-        header_data.extend_from_slice(&header_json_bytes);
-
+        let header_data = Self::read_safetensors_full_header(file_path).await?;
         // Encode as base64
         let header_b64 = general_purpose::STANDARD.encode(&header_data);
         Ok(header_b64)
@@ -378,12 +382,22 @@ mod tests {
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
                 // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                const KB: u64 = 1024;
+                const MB: u64 = KB * 1024;
+                const GB: u64 = MB * 1024;
+                const TB: u64 = GB * 1024;
+
+                if bytes < KB {
+                    prop_assert!(formatted.ends_with(" B"));
+                } else if bytes < MB {
+                    prop_assert!(formatted.ends_with(" KB"));
+                } else if bytes < GB {
+                    prop_assert!(formatted.ends_with(" MB"));
+                } else if bytes < TB {
+                    prop_assert!(formatted.ends_with(" GB"));
+                } else {
+                    prop_assert!(formatted.ends_with(" TB"));
                 }
             }
         }
