@@ -277,9 +277,9 @@ pub fn format_size_colored(bytes: u64) -> String {
     let supports_color = Term::stdout().features().colors_supported();
 
     if supports_color {
-        if bytes < 1024 * 1024 {
+        if bytes < crate::utils::MB {
             formatted.green().to_string()
-        } else if bytes < 1024 * 1024 * 1024 {
+        } else if bytes < crate::utils::GB {
             formatted.yellow().to_string()
         } else {
             formatted.red().to_string()
