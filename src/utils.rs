@@ -7,6 +7,14 @@ use std::path::Path;
 
 use crate::error::{KoavaError, Result};
 
+pub const KB: u64 = 1024;
+pub const MB: u64 = KB * 1024;
+pub const GB: u64 = MB * 1024;
+#[allow(dead_code)]
+pub const TB: u64 = GB * 1024;
+#[allow(dead_code)]
+pub const PB: u64 = TB * 1024;
+
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHeader {
@@ -45,7 +53,7 @@ pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+    pub const MAX_HEADER_SIZE: usize = MB as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
@@ -164,12 +172,13 @@ impl CryptoUtils {
 
 /// Format bytes into human readable string
 pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
     let mut unit_index = 0;
+    let kb = KB as f64;
 
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
+    while size >= kb && unit_index < UNITS.len() - 1 {
+        size /= kb;
         unit_index += 1;
     }
 
@@ -323,9 +332,11 @@ mod tests {
         #[test]
         fn test_format_bytes() {
             assert_eq!(format_bytes(100), "100 B");
-            assert_eq!(format_bytes(1024), "1.0 KB");
-            assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-            assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+            assert_eq!(format_bytes(KB), "1.0 KB");
+            assert_eq!(format_bytes(MB), "1.0 MB");
+            assert_eq!(format_bytes(GB), "1.0 GB");
+            assert_eq!(format_bytes(TB), "1.0 TB");
+            assert_eq!(format_bytes(PB), "1.0 PB");
             assert_eq!(format_bytes(1536), "1.5 KB");
         }
     }
@@ -377,13 +388,19 @@ mod tests {
 
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
-                // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                if bytes < KB {
+                    prop_assert!(formatted.ends_with(" B"));
+                } else if bytes < MB {
+                    prop_assert!(formatted.ends_with(" KB"));
+                } else if bytes < GB {
+                    prop_assert!(formatted.ends_with(" MB"));
+                } else if bytes < TB {
+                    prop_assert!(formatted.ends_with(" GB"));
+                } else if bytes < PB {
+                    prop_assert!(formatted.ends_with(" TB"));
+                } else {
+                    prop_assert!(formatted.ends_with(" PB"));
                 }
             }
         }
