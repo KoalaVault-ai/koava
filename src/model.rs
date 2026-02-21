@@ -566,29 +566,8 @@ impl ModelService {
         let model_name = if let Some(name) = &args.name {
             name.clone()
         } else {
-            use std::path::Component;
-
-            let basename_from = |p: &Path| -> Option<String> {
-                p.components().rev().find_map(|c| match c {
-                    Component::Normal(s) => s.to_str().map(|s| s.to_string()),
-                    _ => None,
-                })
-            };
-
-            // Canonicalize path to handle "." case
-            match model_dir.path.canonicalize() {
-                Ok(canonical_path) => basename_from(canonical_path.as_path())
-                    .unwrap_or_else(|| "unknown-model".to_string()),
-                Err(_) => {
-                    // Fallback to file_name if canonicalize fails
-                    model_dir
-                        .path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "unknown-model".to_string())
-                }
-            }
+            crate::utils::infer_model_name_from_path(&model_dir.path)
+                .unwrap_or_else(|| "unknown-model".to_string())
         };
 
         // Get current username for display

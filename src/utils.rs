@@ -7,6 +7,38 @@ use std::path::Path;
 
 use crate::error::{KoavaError, Result};
 
+/// Kilobyte constant
+pub const KB: u64 = 1024;
+/// Megabyte constant
+pub const MB: u64 = KB * 1024;
+/// Gigabyte constant
+pub const GB: u64 = MB * 1024;
+/// Terabyte constant
+#[allow(dead_code)]
+pub const TB: u64 = GB * 1024;
+/// Petabyte constant
+#[allow(dead_code)]
+pub const PB: u64 = TB * 1024;
+
+/// Infer model name from path
+/// This encapsulates the logic of traversing path components to find a valid name.
+pub fn infer_model_name_from_path(path: &Path) -> Option<String> {
+    use std::path::Component;
+
+    let basename_from = |p: &Path| -> Option<String> {
+        p.components().rev().find_map(|c| match c {
+            Component::Normal(s) => s.to_str().map(|s| s.to_string()),
+            _ => None,
+        })
+    };
+
+    // Canonicalize path to handle "." case, but fallback to original path if fails
+    match path.canonicalize() {
+        Ok(canonical_path) => basename_from(canonical_path.as_path()),
+        Err(_) => basename_from(path),
+    }
+}
+
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHeader {
@@ -45,7 +77,7 @@ pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+    pub const MAX_HEADER_SIZE: usize = MB as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
@@ -164,12 +196,13 @@ impl CryptoUtils {
 
 /// Format bytes into human readable string
 pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
     let mut unit_index = 0;
+    let kb_float = KB as f64;
 
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
+    while size >= kb_float && unit_index < UNITS.len() - 1 {
+        size /= kb_float;
         unit_index += 1;
     }
 
@@ -321,11 +354,24 @@ mod tests {
         }
 
         #[test]
+        fn test_infer_model_name_from_path() {
+            let path = Path::new("/path/to/my-model");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "my-model");
+
+            let path = Path::new("relative/model");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "model");
+
+            // Test trailing slash case which might be handled by components
+            let path = Path::new("/path/to/model/");
+            assert_eq!(infer_model_name_from_path(path).unwrap(), "model");
+        }
+
+        #[test]
         fn test_format_bytes() {
             assert_eq!(format_bytes(100), "100 B");
-            assert_eq!(format_bytes(1024), "1.0 KB");
-            assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-            assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+            assert_eq!(format_bytes(KB), "1.0 KB");
+            assert_eq!(format_bytes(MB), "1.0 MB");
+            assert_eq!(format_bytes(GB), "1.0 GB");
             assert_eq!(format_bytes(1536), "1.5 KB");
         }
     }
@@ -380,9 +426,9 @@ mod tests {
                 // Larger bytes should produce result containing appropriate unit
                 // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
+                if bytes < KB {
                     prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
+                } else if bytes < MB {
                     prop_assert!(formatted.contains("KB"));
                 }
             }
