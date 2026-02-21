@@ -490,25 +490,8 @@ impl<C: ApiClient + 'static + ?Sized> PushOperations<C> for RealPushOperations {
         if let Some(name) = &args.name {
             name.clone()
         } else {
-            use std::path::{Component, Path};
-
-            let basename_from = |p: &Path| -> Option<String> {
-                p.components().rev().find_map(|c| match c {
-                    Component::Normal(s) => s.to_str().map(|s| s.to_string()),
-                    _ => None,
-                })
-            };
-
-            match args.model_path.canonicalize() {
-                Ok(canonical_path) => basename_from(canonical_path.as_path())
-                    .unwrap_or_else(|| "unknown-model".to_string()),
-                Err(_) => args
-                    .model_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown-model".to_string()),
-            }
+            crate::utils::infer_model_name_from_path(&args.model_path)
+                .unwrap_or_else(|| "unknown-model".to_string())
         }
     }
 }
