@@ -364,14 +364,23 @@ mod tests {
         #[test]
         fn test_infer_model_name_from_path() {
             let path = Path::new("path/to/my_model");
-            assert_eq!(infer_model_name_from_path(path), Some("my_model".to_string()));
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("my_model".to_string())
+            );
 
             let path = Path::new("my_model");
             // canonicalize might fail if not exists, but fallback should work
-            assert_eq!(infer_model_name_from_path(path), Some("my_model".to_string()));
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("my_model".to_string())
+            );
 
             let path = Path::new("/absolute/path/to/model_v1");
-            assert_eq!(infer_model_name_from_path(path), Some("model_v1".to_string()));
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("model_v1".to_string())
+            );
 
             // Trailing slash
             let path = Path::new("path/to/model/");

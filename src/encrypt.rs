@@ -228,8 +228,8 @@ impl EncryptService {
         }
 
         if let Some(output_dir) = &args.output {
-            if let Some(base) =
-                crate::utils::infer_model_name_from_path(output_dir).filter(|s| !s.trim().is_empty())
+            if let Some(base) = crate::utils::infer_model_name_from_path(output_dir)
+                .filter(|s| !s.trim().is_empty())
             {
                 return Ok(base);
             } else {
