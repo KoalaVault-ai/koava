@@ -56,7 +56,7 @@ pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = (1 * MB) as usize;
+    pub const MAX_HEADER_SIZE: usize = MB as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
