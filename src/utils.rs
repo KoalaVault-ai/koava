@@ -7,6 +7,17 @@ use std::path::Path;
 
 use crate::error::{KoavaError, Result};
 
+#[allow(dead_code)]
+pub const KB: u64 = 1024;
+#[allow(dead_code)]
+pub const MB: u64 = 1024 * KB;
+#[allow(dead_code)]
+pub const GB: u64 = 1024 * MB;
+#[allow(dead_code)]
+pub const TB: u64 = 1024 * GB;
+#[allow(dead_code)]
+pub const PB: u64 = 1024 * TB;
+
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHeader {
@@ -45,7 +56,7 @@ pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+    pub const MAX_HEADER_SIZE: usize = (1 * MB) as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
@@ -168,8 +179,8 @@ pub fn format_bytes(bytes: u64) -> String {
     let mut size = bytes as f64;
     let mut unit_index = 0;
 
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
+    while size >= KB as f64 && unit_index < UNITS.len() - 1 {
+        size /= KB as f64;
         unit_index += 1;
     }
 
@@ -323,9 +334,9 @@ mod tests {
         #[test]
         fn test_format_bytes() {
             assert_eq!(format_bytes(100), "100 B");
-            assert_eq!(format_bytes(1024), "1.0 KB");
-            assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-            assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+            assert_eq!(format_bytes(KB), "1.0 KB");
+            assert_eq!(format_bytes(MB), "1.0 MB");
+            assert_eq!(format_bytes(GB), "1.0 GB");
             assert_eq!(format_bytes(1536), "1.5 KB");
         }
     }
@@ -380,9 +391,9 @@ mod tests {
                 // Larger bytes should produce result containing appropriate unit
                 // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
+                if bytes < KB {
                     prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
+                } else if bytes < MB {
                     prop_assert!(formatted.contains("KB"));
                 }
             }
