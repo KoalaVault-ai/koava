@@ -15,6 +15,7 @@ pub struct UploadService<C: ApiClient + ?Sized> {
 
 impl<C: ApiClient + ?Sized> UploadService<C> {
     const UPLOAD_BATCH_SIZE: usize = 5;
+    const UPLOAD_BATCH_DELAY_MS: u64 = 100;
 
     /// Create a new upload service
     pub fn new(client: Arc<C>, progress_enabled: bool) -> Self {
@@ -99,7 +100,10 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
 
             // Small delay between batches to be respectful to the server
             if batch_num < total_batches {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(
+                    Self::UPLOAD_BATCH_DELAY_MS,
+                ))
+                .await;
             }
         }
 

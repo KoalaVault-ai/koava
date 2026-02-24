@@ -273,13 +273,15 @@ impl Default for UI {
 
 /// Format file size in a human readable way with colors (if supported)
 pub fn format_size_colored(bytes: u64) -> String {
+    use crate::utils::{GB, MB};
+
     let formatted = crate::format_bytes(bytes);
     let supports_color = Term::stdout().features().colors_supported();
 
     if supports_color {
-        if bytes < 1024 * 1024 {
+        if bytes < MB {
             formatted.green().to_string()
-        } else if bytes < 1024 * 1024 * 1024 {
+        } else if bytes < GB {
             formatted.yellow().to_string()
         } else {
             formatted.red().to_string()

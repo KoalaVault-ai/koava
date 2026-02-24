@@ -40,12 +40,20 @@ pub struct FileInfo {
     pub updated_at: Option<String>,
 }
 
+/// Public byte unit constants
+pub const KB: u64 = 1024;
+pub const MB: u64 = 1024 * KB;
+pub const GB: u64 = 1024 * MB;
+pub const TB: u64 = 1024 * GB;
+#[allow(dead_code)]
+pub const PB: u64 = 1024 * TB;
+
 /// Crypto utilities for file operations
 pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+    pub const MAX_HEADER_SIZE: usize = MB as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
@@ -378,12 +386,11 @@ mod tests {
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
                 // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                if bytes < KB {
+                    prop_assert!(formatted.ends_with(" B"));
+                } else if bytes < MB {
+                    prop_assert!(formatted.ends_with(" KB"));
                 }
             }
         }
