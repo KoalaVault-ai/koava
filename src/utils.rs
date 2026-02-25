@@ -7,6 +7,22 @@ use std::path::Path;
 
 use crate::error::{KoavaError, Result};
 
+/// 1 Kilobyte in bytes
+#[allow(dead_code)]
+pub const KB: u64 = 1024;
+/// 1 Megabyte in bytes
+#[allow(dead_code)]
+pub const MB: u64 = 1024 * KB;
+/// 1 Gigabyte in bytes
+#[allow(dead_code)]
+pub const GB: u64 = 1024 * MB;
+/// 1 Terabyte in bytes
+#[allow(dead_code)]
+pub const TB: u64 = 1024 * GB;
+/// 1 Petabyte in bytes
+#[allow(dead_code)]
+pub const PB: u64 = 1024 * TB;
+
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHeader {
@@ -45,7 +61,7 @@ pub struct CryptoUtils;
 
 impl CryptoUtils {
     pub const HEADER_LENGTH_SIZE: usize = 8;
-    pub const MAX_HEADER_SIZE: usize = 1024 * 1024;
+    pub const MAX_HEADER_SIZE: usize = MB as usize;
     pub const METADATA_KEY: &str = "__metadata__";
     pub const ENCRYPTION_KEY: &str = "__encryption__";
 
@@ -164,12 +180,13 @@ impl CryptoUtils {
 
 /// Format bytes into human readable string
 pub fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
     let mut unit_index = 0;
+    let kb_float = KB as f64;
 
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
+    while size >= kb_float && unit_index < UNITS.len() - 1 {
+        size /= kb_float;
         unit_index += 1;
     }
 
@@ -198,6 +215,15 @@ mod tests {
             assert_eq!(
                 hash,
                 "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+            );
+
+            // Test another known input
+            let input2 = "KoalaVault";
+            let hash2 = CryptoUtils::calculate_sha256_hash(input2);
+            // Generated via echo -n "KoalaVault" | sha256sum
+            assert_eq!(
+                hash2,
+                "c76feb15a0292df87fef09215ba11ee5edc3ad084ead32afef7856857248041e"
             );
         }
 
@@ -323,10 +349,10 @@ mod tests {
         #[test]
         fn test_format_bytes() {
             assert_eq!(format_bytes(100), "100 B");
-            assert_eq!(format_bytes(1024), "1.0 KB");
-            assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
-            assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
-            assert_eq!(format_bytes(1536), "1.5 KB");
+            assert_eq!(format_bytes(KB), "1.0 KB");
+            assert_eq!(format_bytes(MB), "1.0 MB");
+            assert_eq!(format_bytes(GB), "1.0 GB");
+            assert_eq!(format_bytes(KB + (KB / 2)), "1.5 KB");
         }
     }
 
@@ -378,12 +404,17 @@ mod tests {
             #[test]
             fn test_format_bytes_scaling(bytes in 0u64..u64::MAX) {
                 // Larger bytes should produce result containing appropriate unit
-                // (This is a bit loose, but checks basic logic)
                 let formatted = format_bytes(bytes);
-                if bytes < 1024 {
-                    prop_assert!(formatted.contains("B"));
-                } else if bytes < 1024 * 1024 {
-                    prop_assert!(formatted.contains("KB"));
+                if bytes < KB {
+                    prop_assert!(formatted.ends_with(" B"));
+                } else if bytes < MB {
+                    prop_assert!(formatted.ends_with(" KB"));
+                } else if bytes < GB {
+                    prop_assert!(formatted.ends_with(" MB"));
+                } else if bytes < TB {
+                    prop_assert!(formatted.ends_with(" GB"));
+                } else if bytes < PB {
+                    prop_assert!(formatted.ends_with(" TB"));
                 }
             }
         }
