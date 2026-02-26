@@ -7,13 +7,16 @@ use std::path::{Component, Path};
 
 use crate::error::{KoavaError, Result};
 
-/// Byte unit constants
-pub const KB: u64 = 1024;
-pub const MB: u64 = KB * 1024;
-pub const GB: u64 = MB * 1024;
-pub const TB: u64 = GB * 1024;
 #[allow(dead_code)]
-pub const PB: u64 = TB * 1024;
+pub const KB: u64 = 1024;
+#[allow(dead_code)]
+pub const MB: u64 = 1024 * KB;
+#[allow(dead_code)]
+pub const GB: u64 = 1024 * MB;
+#[allow(dead_code)]
+pub const TB: u64 = 1024 * GB;
+#[allow(dead_code)]
+pub const PB: u64 = 1024 * TB;
 
 /// File header information for encrypted models
 #[derive(Debug, Clone, Serialize, Deserialize)]
