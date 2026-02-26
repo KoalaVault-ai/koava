@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::client::ApiClient;
-use crate::error::{KoavaError, Result};
+use crate::error::{ErrorCode, KoavaError, Result};
 use crate::ui::UI;
 use crate::utils::{CryptoUtils, FileInfo};
 use crate::{ModelDirectory, ModelFileService};
@@ -222,8 +222,15 @@ impl<C: ApiClient + ?Sized> UploadService<C> {
             }
             Err(e) => {
                 // Check if this is a 409 conflict error (file already exists)
-                let is_conflict_error =
-                    e.to_string().contains("409") || e.to_string().contains("already exists");
+                let is_conflict_error = matches!(
+                    &e,
+                    KoavaError::Api { status: 409, .. }
+                        | KoavaError::Io {
+                            code: ErrorCode::FileAlreadyExists,
+                            ..
+                        }
+                        | KoavaError::AlreadyExists { .. }
+                );
 
                 if is_conflict_error && force {
                     // In force mode, treat 409 conflicts as warnings, not errors
