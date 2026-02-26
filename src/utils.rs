@@ -3,7 +3,7 @@
 use base64::{engine::general_purpose, Engine};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use crate::error::{KoavaError, Result};
 
@@ -179,7 +179,7 @@ pub fn format_bytes(bytes: u64) -> String {
     let mut size = bytes as f64;
     let mut unit_index = 0;
 
-    while size >= KB as f64 && unit_index < UNITS.len() - 1 {
+    while size >= (KB as f64) && unit_index < UNITS.len() - 1 {
         size /= KB as f64;
         unit_index += 1;
     }
@@ -188,6 +188,30 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit_index])
     } else {
         format!("{:.1} {}", size, UNITS[unit_index])
+    }
+}
+
+/// Infer model name from path components
+///
+/// This logic tries to extract a meaningful model name from the path.
+/// It iterates backwards through path components to find the last normal component.
+/// If canonicalization succeeds, it uses the canonical path.
+/// Otherwise, it falls back to the original path.
+pub fn infer_model_name_from_path(path: &Path) -> Option<String> {
+    let basename_from = |p: &Path| -> Option<String> {
+        p.components().rev().find_map(|c| match c {
+            Component::Normal(s) => s.to_str().map(|s| s.to_string()),
+            _ => None,
+        })
+    };
+
+    match path.canonicalize() {
+        Ok(canonical_path) => basename_from(canonical_path.as_path()),
+        Err(_) => {
+            // Fallback to basename_from if canonicalize fails
+            // This handles cases where path doesn't exist but has valid components
+            basename_from(path)
+        }
     }
 }
 
@@ -337,7 +361,33 @@ mod tests {
             assert_eq!(format_bytes(KB), "1.0 KB");
             assert_eq!(format_bytes(MB), "1.0 MB");
             assert_eq!(format_bytes(GB), "1.0 GB");
-            assert_eq!(format_bytes(1536), "1.5 KB");
+            assert_eq!(format_bytes(KB + (KB / 2)), "1.5 KB");
+        }
+
+        #[test]
+        fn test_infer_model_name_from_path() {
+            let path = Path::new("path/to/my_model");
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("my_model".to_string())
+            );
+
+            let path = Path::new("my_model");
+            // canonicalize might fail if not exists, but fallback should work
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("my_model".to_string())
+            );
+
+            let path = Path::new("/absolute/path/to/model_v1");
+            assert_eq!(
+                infer_model_name_from_path(path),
+                Some("model_v1".to_string())
+            );
+
+            // Trailing slash
+            let path = Path::new("path/to/model/");
+            assert_eq!(infer_model_name_from_path(path), Some("model".to_string()));
         }
     }
 

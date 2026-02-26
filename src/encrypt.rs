@@ -217,15 +217,6 @@ impl EncryptService {
 
     /// Infer model name from args: prefer --name, then --output basename, then model_path basename
     fn infer_model_name(&self, args: &EncryptArgs) -> Result<String> {
-        use std::path::{Component, Path};
-
-        let basename_from = |p: &Path| -> Option<String> {
-            p.components().rev().find_map(|c| match c {
-                Component::Normal(s) => s.to_str().map(|s| s.to_string()),
-                _ => None,
-            })
-        };
-
         if let Some(name) = &args.name {
             let trimmed = name.trim();
             if trimmed.is_empty() {
@@ -237,7 +228,9 @@ impl EncryptService {
         }
 
         if let Some(output_dir) = &args.output {
-            if let Some(base) = basename_from(output_dir).filter(|s| !s.trim().is_empty()) {
+            if let Some(base) = crate::utils::infer_model_name_from_path(output_dir)
+                .filter(|s| !s.trim().is_empty())
+            {
                 return Ok(base);
             } else {
                 return Err(KoavaError::validation(
@@ -246,16 +239,12 @@ impl EncryptService {
             }
         }
 
-        let canonical_path = args
-            .model_path
-            .canonicalize()
-            .map_err(|e| KoavaError::validation(format!("Failed to canonicalize path: {}", e)))?;
-        if let Some(dir_name) = basename_from(&canonical_path) {
+        if let Some(dir_name) = crate::utils::infer_model_name_from_path(&args.model_path) {
             return Ok(dir_name);
         }
 
         Err(KoavaError::validation(
-            "Failed to derive model name from canonicalized path".to_string(),
+            "Failed to derive model name from path".to_string(),
         ))
     }
 
