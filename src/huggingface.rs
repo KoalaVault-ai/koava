@@ -93,7 +93,7 @@ pub async fn check_huggingface_cli_status(config: &Config) -> Result<HuggingFace
 
 /// Parse username from various `hf auth whoami` outputs
 fn parse_hf_whoami_username(raw: &str) -> Option<String> {
-    let cleaned = strip_ansi_codes(raw);
+    let cleaned = console::strip_ansi_codes(raw);
     let normalized = cleaned.replace('\r', "");
     let first_line = normalized
         .lines()
@@ -134,28 +134,4 @@ fn parse_hf_whoami_username(raw: &str) -> Option<String> {
     } else {
         Some(extracted)
     }
-}
-
-/// Strip ANSI escape codes from a string
-fn strip_ansi_codes(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next_ch) = chars.peek() {
-                    chars.next();
-                    if next_ch.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
 }
