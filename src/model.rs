@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use walkdir::WalkDir;
 
 use crate::error::{KoavaError, Result};
 use crate::policy::LoadPolicy;
@@ -62,30 +61,49 @@ impl ModelDirectory {
         let mut all_files = Vec::new();
         let mut total_size = 0u64;
 
-        // Simple directory scanning - process only the model directory itself
-        let walker = WalkDir::new(path)
-            .max_depth(1) // Shallow scan - only current directory
-            .into_iter()
-            .filter_map(|e| e.ok());
+        // Shallow directory scanning in asynchronous functions
+        let mut entries = tokio::fs::read_dir(path).await.map_err(|e| {
+            KoavaError::io(
+                "Directory scanning",
+                format!("Failed to read directory {}: {}", path.display(), e),
+            )
+        })?;
 
-        for entry in walker {
-            if entry.file_type().is_file() {
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            KoavaError::io(
+                "Directory entry",
+                format!("Failed to read directory entry: {}", e),
+            )
+        })? {
+            let metadata = entry.metadata().await.map_err(|e| {
+                KoavaError::io(
+                    "File metadata",
+                    format!(
+                        "Failed to get metadata for {}: {}",
+                        entry.path().display(),
+                        e
+                    ),
+                )
+            })?;
+
+            if metadata.is_file() {
                 let file_path = entry.path();
 
                 // Check if it's a safetensors or cryptotensors file
                 if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
                     let ext_lower = ext.to_lowercase();
                     if ext_lower == "safetensors" || ext_lower == "cryptotensors" {
-                        match ModelFile::from_path(file_path).await {
+                        match ModelFile::from_path(&file_path).await {
                             Ok(model_file) => {
                                 let size = model_file.size;
-                                let _name = model_file.name.clone();
-                                let _is_encrypted = model_file.is_encrypted;
                                 total_size += size;
                                 all_files.push(model_file);
                             }
-                            Err(_e) => {
-                                // Skip files that can't be parsed
+                            Err(e) => {
+                                return Err(KoavaError::io(
+                                    "File parsing",
+                                    format!("Failed to parse file {}: {}", file_path.display(), e),
+                                ));
                             }
                         }
                     }
