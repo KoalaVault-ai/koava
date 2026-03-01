@@ -241,7 +241,7 @@ impl RealPushOperations {
     }
 
     /// Read existing README file or create a default one
-    fn read_or_create_readme(
+    async fn read_or_create_readme(
         &self,
         model_path: &Path,
         model_name: &str,
@@ -257,8 +257,8 @@ impl RealPushOperations {
         ];
 
         for readme_path in readme_candidates {
-            if readme_path.exists() {
-                match std::fs::read_to_string(&readme_path) {
+            if tokio::fs::try_exists(&readme_path).await.unwrap_or(false) {
+                match tokio::fs::read_to_string(&readme_path).await {
                     Ok(content) => {
                         self.ui.info(&format!(
                             "Using existing README file: {}",
@@ -459,12 +459,9 @@ impl<C: ApiClient + 'static + ?Sized> PushOperations<C> for RealPushOperations {
                 KoavaError::authentication("Could not get current username".to_string())
             })?;
 
-            let readme_content = self.read_or_create_readme(
-                &model_path,
-                &model_name,
-                &hf_repo_name,
-                &description_clone,
-            )?;
+            let readme_content = self
+                .read_or_create_readme(&model_path, &model_name, &hf_repo_name, &description_clone)
+                .await?;
 
             let update_data = serde_json::json!({
                 "repository_url": format!("https://huggingface.co/{}", hf_repo_name),
