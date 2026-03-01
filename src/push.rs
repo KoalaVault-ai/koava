@@ -459,13 +459,9 @@ impl<C: ApiClient + 'static + ?Sized> PushOperations<C> for RealPushOperations {
                 KoavaError::authentication("Could not get current username".to_string())
             })?;
 
-            let readme_content = self.read_or_create_readme(
-                &model_path,
-                &model_name,
-                &hf_repo_name,
-                &description_clone,
-            )
-            .await?;
+            let readme_content = self
+                .read_or_create_readme(&model_path, &model_name, &hf_repo_name, &description_clone)
+                .await?;
 
             let update_data = serde_json::json!({
                 "repository_url": format!("https://huggingface.co/{}", hf_repo_name),
